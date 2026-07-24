@@ -1,0 +1,38 @@
+# --- generic ---
+
+# --- 시크릿/환경변수 (파일은 SSD로 이동, 이력엔 제외) ---
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# --- 로컬 하네스 설정(개인) ---
+.claude/settings.local.json
+
+# --- OS/에디터 ---
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/
+*.log
+
+# --- 의존성/빌드산출물/대용량 바이너리 (유형 불문 공통) ---
+node_modules/
+**/node_modules/
+.venv/
+venv/
+dist/
+build/
+bin/
+obj/
+out/
+target/
+.next/
+**/.next/
+*.exe
+*.dll
+*.zip
+*.onnx
+*.pack
+*.pack.gz

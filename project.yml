@@ -1,0 +1,16 @@
+# StartDeck(DMS) 표준 상태 파일 — 자동 생성 초안 2026-07-24
+name: 124.Claude_Usage_Widget
+status: active            # active | paused | done | archived
+phase: "기획 완료 — M1 PoC 대기"
+description: "Claude Code OAuth 재사용 구독 사용량 트레이+플로팅 위젯 (Windows 11)"
+docs:
+  prd: docs/prd.md
+  plan: docs/tasks.md
+# services:               # 외부서비스 연결 — 식별자만, 시크릿(키·비밀번호) 금지!
+#   github: 계정/repo      # git 원격에서 자동 감지되므로 보통 생략
+#   supabase: 프로젝트ref   # supabase/config.toml·.env에서 자동 감지되므로 보통 생략
+#   vercel: 프로젝트명      # .vercel/project.json에서 자동 감지되므로 보통 생략
+#   vultr: "인스턴스 라벨 · 리전"
+#   domains:
+#     - example.com (가비아)
+#   accounts: github=계정A · supabase=계정B   # 어느 계정 소속인지
