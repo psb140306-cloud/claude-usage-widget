@@ -97,6 +97,33 @@ fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ─────────────────────────── 창 배치 ───────────────────────────
+
+/// 화면 가장자리로부터의 여백 (논리 픽셀)
+const WIDGET_MARGIN: f64 = 16.0;
+
+/// 위젯 기본 위치: **작업 영역 우측 하단**.
+///
+/// `work_area()` 는 작업 표시줄을 제외한 영역이라 위젯이 표시줄에 가리지 않는다.
+/// 좌표를 주지 않으면 OS 기본 배치(좌상단 104,104)로 떨어져 울트라와이드에서는
+/// 사실상 눈에 띄지 않는다.
+///
+/// TODO(M3 3.1): 저장된 위치가 있으면 그 값이 이 기본값을 덮어쓴다.
+fn place_bottom_right(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    let Some(monitor) = window.current_monitor()? else {
+        return Ok(()); // 모니터 정보를 못 얻으면 OS 기본 배치를 그대로 둔다
+    };
+
+    let area = monitor.work_area();
+    let size = window.outer_size()?;
+    let margin = (WIDGET_MARGIN * monitor.scale_factor()).round() as i32;
+
+    let x = area.position.x + area.size.width as i32 - size.width as i32 - margin;
+    let y = area.position.y + area.size.height as i32 - size.height as i32 - margin;
+
+    window.set_position(tauri::PhysicalPosition::new(x, y))
+}
+
 // ─────────────────────────── 트레이 (FR-5) ───────────────────────────
 
 fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
@@ -176,6 +203,17 @@ pub fn run() {
         ])
         .setup(|app| {
             setup_tray(app.handle())?;
+
+            // 위젯은 config 에서 visible:false 로 만들어 두고, 배치한 뒤에 보여준다.
+            // 그러지 않으면 좌상단에 떴다가 우측 하단으로 튀는 게 보인다.
+            if let Some(widget) = app.get_webview_window("widget") {
+                if let Err(e) = place_bottom_right(&widget) {
+                    // 배치 실패가 창을 못 띄우는 사유가 되면 안 된다
+                    eprintln!("위젯 기본 위치 설정 실패(기본 배치로 진행): {e}");
+                }
+                widget.show()?;
+            }
+
             // TODO(M2 2.2): poller 시작 → EVENT_STATE 브로드캐스트
             Ok(())
         })
