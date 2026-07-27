@@ -1,0 +1,67 @@
+import type { Severity } from './types'
+
+/** PRD FR-4: 정상(<60) / 주의(60~85) / 위험(>85) */
+export function severityOf(utilization: number | null | undefined): Severity {
+  if (utilization == null) return 'normal'
+  if (utilization > 85) return 'danger'
+  if (utilization >= 60) return 'warning'
+  return 'normal'
+}
+
+/** 게이지 폭 등에 쓰도록 0~100 으로 clamp. */
+export function clampPct(utilization: number | null | undefined): number {
+  if (utilization == null || Number.isNaN(utilization)) return 0
+  return Math.min(100, Math.max(0, utilization))
+}
+
+/** 표시용 정수 %. Claude Code 와 동일하게 내림한다. */
+export function displayPct(utilization: number | null | undefined): string {
+  if (utilization == null) return '–'
+  return `${Math.floor(utilization)}%`
+}
+
+/**
+ * 리셋까지 남은 시간. PRD FR-4 상 1분 단위로 갱신되므로 분 해상도로 충분하다.
+ * 이미 지났으면 "곧 리셋".
+ */
+export function countdown(resetsAt: string | null | undefined, now: Date = new Date()): string {
+  if (!resetsAt) return '–'
+  const target = new Date(resetsAt).getTime()
+  if (Number.isNaN(target)) return '–'
+
+  const diffMin = Math.floor((target - now.getTime()) / 60_000)
+  if (diffMin <= 0) return '곧 리셋'
+
+  const h = Math.floor(diffMin / 60)
+  const m = diffMin % 60
+  if (h >= 24) {
+    const d = Math.floor(h / 24)
+    return `${d}일 ${h % 24}시간 후`
+  }
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')} 후`
+  return `${m}분 후`
+}
+
+/** 확장 모드용 절대 시각 (로컬 타임존). */
+export function absoluteTime(resetsAt: string | null | undefined): string {
+  if (!resetsAt) return '–'
+  const d = new Date(resetsAt)
+  if (Number.isNaN(d.getTime())) return '–'
+  return d.toLocaleString('ko-KR', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+/** 스테일 뱃지용 "N분 전 기준". */
+export function relativeAge(fetchedAt: string, now: Date = new Date()): string {
+  const t = new Date(fetchedAt).getTime()
+  if (Number.isNaN(t)) return ''
+  const min = Math.floor((now.getTime() - t) / 60_000)
+  if (min < 1) return '방금 기준'
+  if (min < 60) return `${min}분 전 기준`
+  const h = Math.floor(min / 60)
+  return `${h}시간 전 기준`
+}

@@ -39,10 +39,11 @@
 
 ### M2: 앱 골격 + 코어 서비스
 
-#### 2.1 프로젝트 스캐폴딩
-- [ ] Tauri 2 프로젝트 초기화 (프론트 스택은 /bootstrap 확정안 적용)
-  - 의존성: M1 Go 판정
-- [ ] 폴더 구조·린트·타입 설정, .gitignore, git 초기화
+#### 2.1 프로젝트 스캐폴딩 — ✅ 완료 (2026-07-27 `/bootstrap`)
+- [x] Tauri 2 프로젝트 초기화 — Tauri 2.11 + Svelte 5 + Vite 8 (SvelteKit 미사용, 멀티 엔트리)
+  - 검증: `vite build` ✅ / `cargo check --all-targets` ✅ / `cargo test --lib` 4/4 ✅ / 앱 실행 ✅
+- [x] 폴더 구조·타입 설정, .gitignore, git — 모듈 구조는 [architecture.md](architecture.md) §2
+- [x] 트레이 + 프레임리스 always-on-top 창 + 창닫기≠종료 골격 (M3 에서 UI 살 붙임)
 
 #### 2.2 코어 모듈 (Rust 사이드)
 - [ ] credentials 모듈: load() → Token/NotFound/Expired/ParseError, 어댑터 구조로 분리
@@ -87,7 +88,7 @@
 #### 5.1 저장소
 - [ ] history 모듈: 스냅샷 append, 기간 query, 90일 초과 prune
   - 의존성: M2 poller
-- [ ] 저장 포맷 결정(SQLite vs JSONL) 및 구현
+- [x] 저장 포맷 결정 → **SQLite** (rusqlite bundled). 근거: architecture.md §1. 구현은 M5
 
 #### 5.2 시각화
 - [ ] 확장 모드에 최근 24시간 세션 사용률 추이 차트

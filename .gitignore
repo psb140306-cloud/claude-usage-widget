@@ -36,3 +36,6 @@ target/
 *.onnx
 *.pack
 *.pack.gz
+# --- Tauri / Vite ---
+/dist
+/src-tauri/gen/schemas

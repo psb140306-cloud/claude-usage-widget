@@ -1,0 +1,78 @@
+/* Windows 11 스타일 토큰 (PRD 5.1). 라이트/다크 모두 정의하고
+   `<html data-theme="light|dark">` 로 강제 전환한다. 기본은 시스템 설정 추종. */
+
+:root {
+  --radius: 10px;
+  --font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+
+  /* 사용률 구간 색상 — 정상 / 주의 / 위험 */
+  --c-normal: #3fb950;
+  --c-warning: #d29922;
+  --c-danger: #f85149;
+
+  color-scheme: light dark;
+}
+
+/* --- 다크 (기본값: 반투명 Mica 유사) --- */
+:root,
+:root[data-theme='dark'] {
+  --bg: rgba(32, 32, 32, 0.82);
+  --bg-solid: #202020;
+  --surface: rgba(255, 255, 255, 0.06);
+  --border: rgba(255, 255, 255, 0.09);
+  --text: #f3f3f3;
+  --text-dim: rgba(243, 243, 243, 0.55);
+  --track: rgba(255, 255, 255, 0.12);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: rgba(249, 249, 249, 0.86);
+    --bg-solid: #f9f9f9;
+    --surface: rgba(0, 0, 0, 0.04);
+    --border: rgba(0, 0, 0, 0.08);
+    --text: #1a1a1a;
+    --text-dim: rgba(26, 26, 26, 0.55);
+    --track: rgba(0, 0, 0, 0.1);
+  }
+}
+
+:root[data-theme='light'] {
+  --bg: rgba(249, 249, 249, 0.86);
+  --bg-solid: #f9f9f9;
+  --surface: rgba(0, 0, 0, 0.04);
+  --border: rgba(0, 0, 0, 0.08);
+  --text: #1a1a1a;
+  --text-dim: rgba(26, 26, 26, 0.55);
+  --track: rgba(0, 0, 0, 0.1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden; /* 위젯 창에 스크롤바가 생기지 않도록 */
+  font-family: var(--font);
+  color: var(--text);
+  /* 위젯 창은 transparent: true 이므로 body 가 배경을 그린다 */
+  background: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 설정 창은 불투명 + 스크롤 허용 */
+html[data-window='settings'],
+html[data-window='settings'] body {
+  overflow: auto;
+  background: var(--bg-solid);
+}
+
+#app {
+  height: 100%;
+}

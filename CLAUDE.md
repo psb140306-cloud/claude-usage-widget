@@ -30,4 +30,37 @@ Claude Code의 OAuth 인증을 재사용하여 구독 사용량(5시간 세션/�
 
 ## 기술 스택
 
-> /bootstrap 후 확정 내용으로 업데이트 예정
+확정 (2026-07-27 `/bootstrap`). 근거·대안 비교는 [docs/architecture.md](docs/architecture.md).
+
+- **앱**: Tauri 2.11 (Rust 1.95 / edition 2021)
+- **UI**: Svelte 5.56 (runes) + TypeScript 7 + Vite 8 — SvelteKit 미사용, 멀티 엔트리(위젯/설정)
+- **HTTP**: reqwest 0.13 (rustls + rustls-native-certs)
+- **저장**: 히스토리 SQLite(rusqlite bundled) / 설정 tauri-plugin-store
+- **차트**: uPlot 1.6
+- **패키징**: Tauri NSIS 번들러 (currentUser 설치)
+
+## 프로젝트 구조
+
+```
+src/           위젯 프론트 (Svelte). lib/types.ts 는 src-tauri/src/model.rs 와 1:1
+src-tauri/src/ Rust 코어. PRD 5.3 모듈 경계 = 파일 구조
+               credentials → usage_client → poller → (history / notifier / UI)
+scripts/       M1 PoC 스크립트
+docs/          기획·PRD·작업계획·API 스키마·아키텍처
+```
+
+## 주요 명령어
+
+- 개발: `npm run tauri:dev`
+- 프론트 빌드: `npm run build` / 타입 검사: `npm run check`
+- Rust 테스트: `cd src-tauri; cargo test --lib`
+- 릴리스+인스톨러: `npm run tauri:build`
+
+## 개발 컨벤션
+
+- **토큰은 Rust 경계를 넘지 않는다.** 프론트로 가는 건 `AppState`(사용률·리셋시각)뿐
+- `AccessToken` 은 `Debug` 가 값을 가린다. 로깅 시 구조체째 찍어도 안전하도록 유지할 것
+- 미구현 커맨드는 조용히 성공하지 말고 `Err("M_에서 구현 예정")` 을 반환
+- 오류는 패닉이 아니라 `AppState` 강등으로 처리 (loading/ok/stale/needsReauth/unavailable)
+- PowerShell 스크립트(.ps1)는 **UTF-8 BOM** 으로 저장 (없으면 한글 주석이 다음 줄을 삼킴)
+- 커밋 메시지: `feat(m2): …` 처럼 마일스톤을 스코프로

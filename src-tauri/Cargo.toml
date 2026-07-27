@@ -1,0 +1,53 @@
+[package]
+name = "claude-usage-widget"
+version = "0.1.0"
+description = "Claude Code 구독 사용량 트레이 위젯"
+authors = ["psb140306-cloud"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+# `_lib` 접미사는 Windows 에서 bin 이름과 충돌하지 않게 하려고 필요하다.
+# https://github.com/rust-lang/cargo/issues/8519
+name = "claude_usage_widget_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# tray-icon: 트레이 상주 (FR-5) / image-png: 사용률 구간별 아이콘 색상 교체
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-notification = "2"   # FR-6 Windows 토스트
+tauri-plugin-autostart = "2"      # FR-8 Windows 시작 시 자동 실행
+tauri-plugin-store = "2"          # FR-8 설정 로컬 JSON
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# usage 엔드포인트 호출 (FR-2).
+# rustls: OpenSSL 의존 없이 빌드 재현성 확보 / rustls-native-certs: 사내 프록시 등 OS 신뢰 저장소 사용
+reqwest = { version = "0.13", default-features = false, features = [
+  "json",
+  "rustls",
+  "rustls-native-certs",
+  "http2",
+] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
+
+chrono = { version = "0.4", features = ["serde"] }
+
+# FR-7 히스토리. bundled: 시스템 SQLite 설치 없이 정적 링크
+rusqlite = { version = "0.40", features = ["bundled", "chrono"] }
+
+[target.'cfg(windows)'.dependencies]
+tauri-plugin-single-instance = "2"
+
+[profile.release]
+# 상주 앱이므로 바이너리 크기·메모리를 우선한다
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
