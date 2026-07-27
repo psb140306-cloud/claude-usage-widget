@@ -10,7 +10,7 @@ mod poller;
 mod settings;
 mod usage_client;
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
@@ -22,7 +22,7 @@ use settings::Settings;
 
 /// 앱 전역 상태.
 struct AppCtx {
-    poller: Mutex<Poller>,
+    poller: Arc<Poller>,
     settings: Mutex<Settings>,
 }
 
@@ -30,13 +30,13 @@ struct AppCtx {
 
 #[tauri::command]
 fn get_state(ctx: tauri::State<'_, AppCtx>) -> AppState {
-    ctx.poller.lock().unwrap().state().clone()
+    ctx.poller.state()
 }
 
+/// 수동 새로고침. 스로틀(5초)에 걸리면 남은 시간을 안내한다.
 #[tauri::command]
-fn refresh_now() -> Result<(), String> {
-    // TODO(M2 2.2): poller 수동 트리거 + 5초 스로틀
-    Err("M2에서 구현 예정".into())
+fn refresh_now(ctx: tauri::State<'_, AppCtx>) -> Result<(), String> {
+    ctx.poller.request_refresh()
 }
 
 #[tauri::command]
@@ -146,7 +146,10 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 }
             }
             "refresh" => {
-                // TODO(M2 2.2): poller.refresh_now()
+                if let Some(ctx) = app.try_state::<AppCtx>() {
+                    // 스로틀에 걸리면 조용히 무시한다 (트레이 메뉴엔 알릴 곳이 없다)
+                    let _ = ctx.poller.request_refresh();
+                }
             }
             "settings" => {
                 let _ = open_settings_window(app.clone());
@@ -189,7 +192,7 @@ pub fn run() {
             None,
         ))
         .manage(AppCtx {
-            poller: Mutex::new(Poller::new()),
+            poller: Arc::new(Poller::new()),
             settings: Mutex::new(Settings::default()),
         })
         .invoke_handler(tauri::generate_handler![
@@ -214,7 +217,10 @@ pub fn run() {
                 widget.show()?;
             }
 
-            // TODO(M2 2.2): poller 시작 → EVENT_STATE 브로드캐스트
+            // 폴링 시작. 첫 조회는 즉시 일어나고, 이후 설정된 주기로 돈다.
+            let ctx = app.state::<AppCtx>();
+            ctx.poller.clone().start(app.handle().clone());
+
             Ok(())
         })
         .on_window_event(|window, event| {

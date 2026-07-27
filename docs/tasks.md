@@ -45,12 +45,18 @@
 - [x] 폴더 구조·타입 설정, .gitignore, git — 모듈 구조는 [architecture.md](architecture.md) §2
 - [x] 트레이 + 프레임리스 always-on-top 창 + 창닫기≠종료 골격 (M3 에서 UI 살 붙임)
 
-#### 2.2 코어 모듈 (Rust 사이드)
-- [ ] credentials 모듈: load() → Token/NotFound/Expired/ParseError, 어댑터 구조로 분리
-- [ ] usage-client 모듈: fetchUsage(token), 방어적 파싱, 401/5xx/타임아웃 오류 분류, 지수 백오프 3회
-  - 의존성: 2.2 credentials, M1 스키마 문서
-- [ ] poller 모듈: 주기 폴링(기본 60초), 수동 새로고침(5초 스로틀), 절전 복귀 감지 시 즉시 조회
-- [ ] 프론트로 이벤트 발행 (snapshot/error) 및 단위 테스트
+#### 2.2 코어 모듈 (Rust 사이드) — ✅ 완료 (2026-07-27)
+- [x] credentials 모듈: load() → Token/NotFound/Expired/ParseError, 어댑터 구조로 분리
+  - `AccessToken` 뉴타입 + `Debug` 마스킹. 폴링 시 `spawn_blocking` 으로 동기 I/O 격리
+- [x] usage-client 모듈: fetchUsage(token), 방어적 파싱, 401/5xx/타임아웃 오류 분류, 지수 백오프 3회
+  - 상태코드를 **본문보다 먼저** 판정 (401 본문 수신 실패 시 재시도 대상으로 오분류되는 문제)
+  - 백오프 500ms → 1s → 2s, 총 3회 시도. 429 는 재시도 대상에서 제외
+- [x] poller 모듈: 주기 폴링(기본 60초), 수동 새로고침(5초 스로틀), 절전 복귀 감지 시 즉시 조회
+  - 5초 단위로 깨어 **벽시계**를 비교 → 확인 간격이 15초 이상 벌어지면 절전 복귀로 보고 즉시 조회
+  - 주기는 FR-8 범위(30초~10분)로 clamp
+- [x] 프론트로 이벤트 발행 (`usage://state`) 및 단위 테스트 (20개)
+- [ ] 트레이 툴팁·아이콘에 반영 → M3 3.2
+- [ ] 히스토리 저장소로 브로드캐스트 → M5 5.1
 
 ### M3: 위젯 & 트레이 UI
 
