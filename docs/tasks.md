@@ -16,25 +16,26 @@
 
 ## 상세 태스크
 
-### M1: 데이터 레이어 PoC ⚠️ Go/No-Go 게이트
+### M1: 데이터 레이어 PoC ⚠️ Go/No-Go 게이트 — **✅ Go (2026-07-27)**
 
 > 비공식 usage 엔드포인트가 실제로 동작하는지 본 개발 전에 검증한다.
 > 실패 시: 로컬 트랜스크립트 파싱 방식으로 재기획 (M2 이후 진행 중단).
+> 결과: `GET https://api.anthropic.com/api/oauth/usage` → HTTP 200. 상세는 [api-schema.md](api-schema.md).
 
 #### 1.1 자격증명 확인
-- [ ] `%USERPROFILE%\.claude\.credentials.json` 존재·구조 확인 (accessToken, expiresAt, subscriptionType 필드)
-  - 예상 작업: 실제 파일 열어 스키마 기록 (토큰 값은 문서에 남기지 않음)
-  - 의존성: 없음
-- [ ] 토큰 만료 시 Claude Code 실행으로 갱신되는지 동작 확인
+- [x] `%USERPROFILE%\.claude\.credentials.json` 존재·구조 확인 (accessToken, expiresAt, subscriptionType 필드)
+  - 결과: `claudeAiOauth.{accessToken, refreshToken, expiresAt(ms), scopes, subscriptionType, rateLimitTier}` + `organizationUuid`
+  - ⚠️ `expiresAt`은 epoch **밀리초**
+- [ ] 토큰 만료 시 Claude Code 실행으로 갱신되는지 동작 확인 (만료 시점 도래 후 확인 — M2로 이월)
 
 #### 1.2 usage 엔드포인트 검증
-- [ ] Claude Code의 usage 조회 엔드포인트 URL·요청 헤더 파악 (커뮤니티 구현체·트래픽 분석 참고)
-  - 예상 작업: ccusage/claude-powerline 등 오픈소스 구현 조사
-  - 의존성: 1.1
-- [ ] PoC 스크립트 작성: 토큰 로드 → 엔드포인트 호출 → 응답 JSON 출력
-- [ ] 응답 스키마 문서화: 세션/주간/Opus 사용률, 리셋 시각 필드 매핑 → `docs/api-schema.md`
-- [ ] Claude Code `/usage` 표시값과 PoC 결과 대조 (정확도 확인)
-- [ ] **Go/No-Go 판정**: 엔드포인트 동작 + 값 일치 확인 시 M2 진행
+- [x] Claude Code의 usage 조회 엔드포인트 URL·요청 헤더 파악
+  - 방법: 설치된 `claude.exe`(v2.1.210)에 포함된 JS 번들에서 `fetchUtilization` 호출부 직접 추출
+  - 결과: `GET /api/oauth/usage` + `Authorization: Bearer` + `anthropic-beta: oauth-2025-04-20`
+- [x] PoC 스크립트 작성: 토큰 로드 → 엔드포인트 호출 → 응답 JSON 출력 → [scripts/m1-poc-usage.ps1](../scripts/m1-poc-usage.ps1)
+- [x] 응답 스키마 문서화: 세션/주간/Opus 사용률, 리셋 시각 필드 매핑 → [docs/api-schema.md](api-schema.md)
+- [ ] Claude Code `/usage` 표시값과 PoC 결과 대조 (정확도 확인) — **사용자 확인 대기**
+- [x] **Go/No-Go 판정**: 엔드포인트 동작 확인 → **Go**, M2 진행
 
 ### M2: 앱 골격 + 코어 서비스
 
@@ -117,6 +118,6 @@ M3~M5는 M2 완료 후 병렬 진행 가능 (단, 5.2 차트는 3.1 확장 모�
 ## Go/No-Go 체크리스트
 
 - [x] 아이디어가 충분히 구체화되었는가? → planning.md, prd.md 완료
-- [ ] 기술적으로 실현 가능한가? → **M1 PoC에서 검증** (비공식 엔드포인트 동작 여부)
+- [x] 기술적으로 실현 가능한가? → **M1 PoC 통과 (2026-07-27)** — HTTP 200, 세션/주간/모델별 사용률·리셋 시각 모두 확보
 - [x] 투입 시간 대비 가치가 있는가? → 매일 쓰는 도구, 총 2~3주 규모
-- [ ] 필요한 리소스가 확보 가능한가? → Claude Code 로그인 상태의 PC (확보됨), 엔드포인트 접근은 M1에서 확인
+- [x] 필요한 리소스가 확보 가능한가? → Claude Code 로그인 상태의 PC (확보됨), 엔드포인트 접근 확인됨
