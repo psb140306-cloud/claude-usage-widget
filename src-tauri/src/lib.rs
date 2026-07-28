@@ -3,6 +3,7 @@
 //! credentials → usage_client → poller → (history / notifier / UI)
 
 mod credentials;
+mod environment;
 mod history;
 mod model;
 mod notifier;
@@ -10,20 +11,25 @@ mod poller;
 mod settings;
 mod usage_client;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{Manager, WindowEvent};
+use tauri::{Emitter, Manager, WindowEvent};
 
+use environment::Environment;
 use model::AppState;
 use poller::Poller;
-use settings::Settings;
+use settings::{Settings, SettingsStore, EVENT_SETTINGS};
+
+/// 창 라벨. `tauri.conf.json` 및 `capabilities/default.json` 과 일치해야 한다.
+const WIDGET_WINDOW: &str = "widget";
+const SETTINGS_WINDOW: &str = "settings";
 
 /// 앱 전역 상태.
 struct AppCtx {
     poller: Arc<Poller>,
-    settings: Mutex<Settings>,
+    settings: SettingsStore,
 }
 
 // ─────────────────────────── 커맨드 (프론트 `src/lib/ipc.ts` 와 1:1) ───────────────────────────
@@ -39,18 +45,35 @@ fn refresh_now(ctx: tauri::State<'_, AppCtx>) -> Result<(), String> {
     ctx.poller.request_refresh()
 }
 
+/// 계정·플랜·현재 세션(모델/effort/thinking).
 #[tauri::command]
-fn get_settings(ctx: tauri::State<'_, AppCtx>) -> Settings {
-    ctx.settings.lock().unwrap().clone()
+fn get_environment(ctx: tauri::State<'_, AppCtx>) -> Environment {
+    ctx.poller.environment()
 }
 
 #[tauri::command]
+fn get_settings(ctx: tauri::State<'_, AppCtx>) -> Settings {
+    ctx.settings.get()
+}
+
+/// 부분 갱신 → 저장 → 즉시 적용. 보낸 키만 바뀐다.
+#[tauri::command]
 fn update_settings(
-    _ctx: tauri::State<'_, AppCtx>,
-    _patch: serde_json::Value,
+    app: tauri::AppHandle,
+    ctx: tauri::State<'_, AppCtx>,
+    patch: serde_json::Value,
 ) -> Result<Settings, String> {
-    // TODO(M4 4.2): 병합 → 저장 → 즉시 적용(폴링 주기·테마·투명도·자동 시작)
-    Err("M4에서 구현 예정".into())
+    let next = ctx.settings.update(patch).map_err(|e| e.to_string())?;
+
+    // 폴링 주기는 저장만 해서는 반영되지 않는다 — 돌고 있는 루프에 알려야 한다
+    ctx.poller.set_interval_secs(next.polling_interval_sec);
+
+    // 열려 있는 창들이 색상을 바로 다시 칠하도록
+    if let Err(e) = app.emit(EVENT_SETTINGS, &next) {
+        eprintln!("설정 이벤트 발행 실패: {e}");
+    }
+
+    Ok(next)
 }
 
 #[tauri::command]
@@ -76,25 +99,42 @@ fn set_widget_mode(_mode: String) -> Result<(), String> {
 /// release 빌드 + private bytes 기준으로 한다.
 #[tauri::command]
 fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window("settings") {
+    if let Some(win) = app.get_webview_window(SETTINGS_WINDOW) {
         win.show().map_err(|e| e.to_string())?;
         win.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
     }
 
-    tauri::WebviewWindowBuilder::new(
-        &app,
-        "settings",
-        tauri::WebviewUrl::App("settings.html".into()),
-    )
-    .title("Claude Usage Widget 설정")
-    .inner_size(420.0, 520.0)
-    .resizable(true)
-    .center()
-    .build()
-    .map_err(|e| e.to_string())?;
+    // 창 생성은 메인 스레드에서 해야 한다. 커맨드는 워커 스레드에서 실행될 수 있고,
+    // 그 상태로 build() 를 부르면 Windows 에서 창은 떠도 웹뷰가 백지가 된다.
+    let handle = app.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
 
-    Ok(())
+    app.run_on_main_thread(move || {
+        let result = tauri::WebviewWindowBuilder::new(
+            &handle,
+            SETTINGS_WINDOW,
+            tauri::WebviewUrl::App("settings.html".into()),
+        )
+        .title("Claude Usage Widget 설정")
+        .inner_size(420.0, 560.0)
+        .min_inner_size(360.0, 400.0)
+        .resizable(true)
+        .center()
+        .build();
+
+        // 실패를 조용히 삼키지 않는다 — 버튼이 먹통인 것처럼 보이는 원인이 된다
+        let _ = tx.send(result.err().map(|e| e.to_string()));
+    })
+    .map_err(|e| format!("설정 창을 열 수 없습니다: {e}"))?;
+
+    // 생성 결과를 호출자에게 되돌려 준다. 그러지 않으면 창이 안 떠도
+    // 프론트의 promise 는 성공으로 resolve 되어 catch 가 걸리지 않는다.
+    match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+        Ok(None) => Ok(()),
+        Ok(Some(e)) => Err(format!("설정 창 생성 실패: {e}")),
+        Err(_) => Err("설정 창 생성이 응답하지 않습니다".into()),
+    }
 }
 
 // ─────────────────────────── 창 배치 ───────────────────────────
@@ -140,7 +180,7 @@ fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "toggle" => {
-                if let Some(w) = app.get_webview_window("widget") {
+                if let Some(w) = app.get_webview_window(WIDGET_WINDOW) {
                     let visible = w.is_visible().unwrap_or(false);
                     let _ = if visible { w.hide() } else { w.show() };
                 }
@@ -177,7 +217,7 @@ pub fn run() {
     #[cfg(windows)]
     {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(w) = app.get_webview_window("widget") {
+            if let Some(w) = app.get_webview_window(WIDGET_WINDOW) {
                 let _ = w.show();
                 let _ = w.set_focus();
             }
@@ -186,17 +226,13 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_store::Builder::new().build())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             None,
         ))
-        .manage(AppCtx {
-            poller: Arc::new(Poller::new()),
-            settings: Mutex::new(Settings::default()),
-        })
         .invoke_handler(tauri::generate_handler![
             get_state,
+            get_environment,
             refresh_now,
             get_settings,
             update_settings,
@@ -205,11 +241,27 @@ pub fn run() {
             open_settings_window,
         ])
         .setup(|app| {
+            // 설정 파일 경로는 AppHandle 이 있어야 정해지므로 여기서 상태를 만든다
+            let settings_path = app
+                .path()
+                .app_config_dir()
+                .map_err(|e| format!("설정 경로를 찾을 수 없습니다: {e}"))?
+                .join("settings.json");
+
+            let poller = Arc::new(Poller::new());
+            let settings = SettingsStore::load(settings_path);
+            poller.set_interval_secs(settings.get().polling_interval_sec);
+
+            app.manage(AppCtx {
+                poller: poller.clone(),
+                settings,
+            });
+
             setup_tray(app.handle())?;
 
             // 위젯은 config 에서 visible:false 로 만들어 두고, 배치한 뒤에 보여준다.
             // 그러지 않으면 좌상단에 떴다가 우측 하단으로 튀는 게 보인다.
-            if let Some(widget) = app.get_webview_window("widget") {
+            if let Some(widget) = app.get_webview_window(WIDGET_WINDOW) {
                 if let Err(e) = place_bottom_right(&widget) {
                     // 배치 실패가 창을 못 띄우는 사유가 되면 안 된다
                     eprintln!("위젯 기본 위치 설정 실패(기본 배치로 진행): {e}");
@@ -218,13 +270,18 @@ pub fn run() {
             }
 
             // 폴링 시작. 첫 조회는 즉시 일어나고, 이후 설정된 주기로 돈다.
-            let ctx = app.state::<AppCtx>();
-            ctx.poller.clone().start(app.handle().clone());
+            poller.start(app.handle().clone());
 
             Ok(())
         })
         .on_window_event(|window, event| {
-            // FR-5: 창을 닫아도 앱은 트레이에 상주한다
+            // FR-5: **위젯** 창을 닫아도 앱은 트레이에 상주한다. 완전 종료는 트레이 메뉴에서만.
+            //
+            // 설정 창까지 가로채면 X 버튼이 먹통이 된다. 설정 창은 그대로 닫히게 두어야
+            // WebView2 렌더러도 함께 반환된다 (지연 생성과 같은 이유).
+            if window.label() != WIDGET_WINDOW {
+                return;
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();

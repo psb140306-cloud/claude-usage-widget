@@ -13,11 +13,14 @@ use tauri::{AppHandle, Emitter};
 use tokio::sync::Notify;
 
 use crate::credentials::{self, CredentialsError};
+use crate::environment::{self, Environment};
 use crate::model::{AppState, UsageSnapshot};
 use crate::usage_client::{self, UsageError};
 
-/// 프론트 이벤트 이름. `src/lib/types.ts` 의 `EVENT.state` 와 일치해야 한다.
+/// 프론트 이벤트 이름. `src/lib/types.ts` 의 `EVENT` 와 일치해야 한다.
 pub const EVENT_STATE: &str = "usage://state";
+/// 계정·플랜·현재 세션(모델/effort/thinking)
+pub const EVENT_ENV: &str = "usage://env";
 
 /// FR-3: 기본 60초, 하한 30초 / FR-8: 설정 범위 30초~10분
 pub const DEFAULT_INTERVAL_SECS: u64 = 60;
@@ -42,6 +45,8 @@ pub struct Poller {
     state: Mutex<AppState>,
     /// 마지막으로 성공한 스냅샷. 실패 시 스테일 표시에 쓴다.
     last_snapshot: Mutex<Option<UsageSnapshot>>,
+    /// 계정·세션 정보 (usage API 가 아니라 로컬 파일에서 온다)
+    env: Mutex<Environment>,
     /// 수동 새로고침 신호
     refresh: Notify,
     /// 수동 새로고침 스로틀용
@@ -59,6 +64,7 @@ impl Poller {
             client: usage_client::build_client().unwrap_or_default(),
             state: Mutex::new(AppState::Loading),
             last_snapshot: Mutex::new(None),
+            env: Mutex::new(Environment::default()),
             refresh: Notify::new(),
             last_manual: Mutex::new(None),
             interval_secs: AtomicU64::new(DEFAULT_INTERVAL_SECS),
@@ -67,6 +73,10 @@ impl Poller {
 
     pub fn state(&self) -> AppState {
         self.state.lock().unwrap().clone()
+    }
+
+    pub fn environment(&self) -> Environment {
+        self.env.lock().unwrap().clone()
     }
 
     pub fn interval_secs(&self) -> u64 {
@@ -109,6 +119,7 @@ impl Poller {
     pub fn start(self: Arc<Self>, app: AppHandle) {
         tauri::async_runtime::spawn(async move {
             loop {
+                self.refresh_env(&app).await;
                 self.poll_once(&app).await;
                 self.wait_for_next_tick().await;
             }
@@ -135,6 +146,25 @@ impl Poller {
                 }
                 _ = self.refresh.notified() => return,
             }
+        }
+    }
+
+    /// 계정·세션 정보를 다시 읽어 프론트로 보낸다.
+    ///
+    /// 디렉터리 순회 + 파일 읽기라 usage 조회와 같은 이유로 블로킹 풀에서 돌린다.
+    /// 실패해도 조용히 넘어간다 — 사용량 표시를 막을 이유가 없다.
+    async fn refresh_env(&self, app: &AppHandle) {
+        let Ok(env) = tokio::task::spawn_blocking(environment::load).await else {
+            return;
+        };
+        // 트랜스크립트가 로테이션되는 순간처럼 일시적으로 아무것도 못 읽는 경우가 있다.
+        // 그때 빈 값으로 덮으면 위젯의 계정·모델 줄이 깜빡 사라진다.
+        if env.is_empty() {
+            return;
+        }
+        *self.env.lock().unwrap() = env.clone();
+        if let Err(e) = app.emit(EVENT_ENV, &env) {
+            eprintln!("환경 이벤트 발행 실패: {e}");
         }
     }
 

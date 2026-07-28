@@ -1,57 +1,58 @@
 # 다음 세션 가이드
 
-> 작성: 2026-07-27 (M1 PoC + /bootstrap 완료)
+> 작성: 2026-07-27 (M1 PoC → /bootstrap → M2 완료)
 
 ## 즉시 검증 (다음 세션 첫 1분)
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\m1-poc-usage.ps1   # 데이터 레이어 살아있는지
-cd src-tauri; cargo test --lib                                       # 4/4 통과해야 함
-npm run tauri:dev                                                    # 위젯 창 + 트레이 아이콘 확인
+cd src-tauri; cargo test --lib     # 33/33 통과해야 함
+npm run check                       # 0 errors
+npm run tauri:dev                   # 우측 하단에 위젯, 실제 사용량 표시
 ```
-PoC 가 401 이면 Claude Code 를 한 번 실행해 토큰을 갱신할 것.
+PoC 스크립트로 값 대조: `powershell -ExecutionPolicy Bypass -File scripts\m1-poc-usage.ps1`
 
-## 이번 세션 완료 (2026-07-27)
+## 완료 상태
 
-### M1 데이터 레이어 PoC — ✅ Go
-| 작업 | 산출물 |
-|------|--------|
-| usage 엔드포인트 역추적 | claude.exe v2.1.210 번들에서 `fetchUtilization` 추출 |
-| 실호출 검증 | `GET /api/oauth/usage` → **HTTP 200** |
-| PoC 스크립트 | scripts/m1-poc-usage.ps1 |
-| 응답 스키마 문서화 | docs/api-schema.md |
+| 마일스톤 | 상태 |
+|---|---|
+| M1 데이터 레이어 PoC | ✅ Go — `GET /api/oauth/usage` HTTP 200 |
+| M2 2.1 스캐폴딩 | ✅ Tauri 2 + Svelte 5 + SQLite |
+| M2 2.2 코어 모듈 | ✅ credentials / usage_client / poller, 실데이터 흐름 확인 |
+| M3 3.1 위젯 창 | ✅ 게이지 3개 + 게이지별 리셋 안내 + 계정·플랜·모델·effort·thinking |
+| M4 4.2 설정(1차) | ✅ 색상 7종 + 불투명도 + 폴링 주기, 즉시 저장·적용 |
 
-### M2 2.1 스캐폴딩 — ✅ 완료 (`/bootstrap`)
-| 항목 | 결과 |
-|------|------|
-| 기술스택 확정 | Tauri 2.11 + Svelte 5(runes) + TS 7 + Vite 8 + SQLite + uPlot |
-| 모듈 구조 | PRD 5.3 경계를 파일로 (credentials → usage_client → poller → history/notifier/UI) |
-| 설계 문서 | docs/architecture.md |
-| `vite build` | ✅ 246ms |
-| `cargo check --all-targets` | ✅ 에러 0 |
-| `cargo test --lib` | ✅ 4/4 (응답 파싱 · 토큰 마스킹 · ms 처리 고정) |
-| 앱 실행 | ✅ 프레임리스 위젯 창 + 유휴 CPU 0ms/5s |
+**위젯 표시 항목** (240×215, 작업 영역 우측 하단)
+```
+성훈  [Max 20x]                    ⚙
+세션 (5시간)                      9%
+▬▬▭▭▭▭▭▭▭▭   2시간 11분 후 리셋
+주간 (7일)                       27%
+▬▬▬▬▭▭▭▭▭▭   2일 9시간 후 리셋
+주간 (Fable) ●                   29%
+▬▬▬▬▭▭▭▭▭▭   2일 9시간 후 리셋
+Opus 5 · max · thinking
+```
 
-## 다음 작업 우선순위 — M2 2.2 코어 모듈 (Rust)
+## 다음 작업 우선순위
 
-구현 스펙은 전부 [api-schema.md](api-schema.md) 에 있다. 추측하지 말고 그대로 옮길 것.
-
-1. **`usage_client::fetch_usage`** — 현재 `todo!()`
-   - 상수는 이미 있음: `USAGE_URL` / `OAUTH_BETA` / `TIMEOUT_SECS`
-   - 상태코드 → `UsageError` 매핑은 api-schema.md §5 표 그대로
-   - 200 이지만 `RawUsage::normalize()` 가 `None` → `UsageError::Schema`
-2. **`poller`** — tokio interval 루프, 지수 백오프 3회, 수동 새로고침 5초 스로틀, 절전 복귀 시 즉시 1회
-   - 상태 전이 후 `emit(EVENT_STATE, AppState)` → 프론트가 이미 구독 중
-3. **`credentials`** 는 구현 완료 — 만료 시 `CredentialsError::Expired` → `AppState::NeedsReauth` 로 연결만 하면 됨
-4. 이후 M3(위젯/트레이 UI) → M4(알림/설정) → M5(히스토리/차트) → M6(패키징)
-
-## 사용자 행동 필요
-- **`/usage` 대조 (M1 잔여 1건)**: Claude Code 대화형 세션에서 `/usage` 실행 → PoC 출력과 같은 시각 기준으로 비교. CLI 서브커맨드가 없어 자동화 불가.
+1. **M3 3.2 트레이** — 사용률 구간별 아이콘 색상, 툴팁 요약(세션 % · 주간 % · 리셋). poller 가 이미 상태를 들고 있으니 구독만 붙이면 된다
+2. **M4 4.1 알림** — `notifier.rs` 의 `evaluate()` 가 `todo!()`. 임계값 80/95%, 동일 임계값·동일 리셋 주기 내 1회
+3. **M4 4.2 설정 2차** — 알림 on/off, 임계값, 테마, 자동 시작
+4. **M5 히스토리** — `history.rs` 의 append/query/prune 이 `todo!()`. poller 성공 시 append 연결
+5. **M6 패키징** — release 빌드 메모리 검증(private bytes), NSIS 인스톨러
 
 ## 알려진 이슈 / 모니터 대상
-- **비공식 엔드포인트** — 변경 시 수정 범위는 `usage_client.rs` + `model.rs` 의 `Raw*` 로 한정되도록 격리해 둠
-- **베타 헤더** `oauth-2025-04-20` 만료 가능성 → `usage_client.rs` 상수 1곳
-- **실험 버킷 증식** (`tangelo`, `nimbus_quill` …) → 명명 필드 대신 `limits[]` 우선 사용
-- **토큰 만료 동작 미검증** (tasks.md 1.1 잔여) — 실제 만료 시점에 M2 에서 확인
-- **메모리 목표** — debug 기준 351.7MB. WorkingSet 은 WebView2 공유 페이지를 중복 계산하므로 PRD 150MB 검증은 M6 에서 release + private bytes 로 별도 수행
-- `AppState` variants dead-code 경고 1건 — M2 에서 실제 전이가 생기면 사라짐
-- PowerShell 스크립트는 **UTF-8 BOM 필수**
+
+- **비공식 엔드포인트** — 변경 시 수정 범위는 `usage_client.rs` + `model.rs` 의 `Raw*` 로 한정
+- **429 주의** — 앱을 자주 재시작하며 폴링하면 요청 제한에 걸린다. 걸리면 스테일로 강등되고 마지막 값 + "N분 전 기준"이 표시된다 (실제로 확인함)
+- **TypeScript 5.9 고정** — svelte-check 4.7 이 TS 7 에서 죽는다. svelte-check 가 TS 7 을 지원하면 올릴 것
+- **트랜스크립트 스캔 비용** — `environment.rs` 가 매 폴링마다 `~/.claude/projects` 를 깊이 3까지 훑는다. 프로젝트·세션이 아주 많아지면 캐시가 필요할 수 있다
+- **메모리** — debug 기준. PRD 150MB 검증은 M6 에서 release + private bytes 로
+- **PowerShell 인코딩** — .ps1 은 UTF-8 BOM 필수. `Get-Content`/`Set-Content` 로 한글 파일을 다룰 때 `-Encoding utf8` 을 반드시 지정할 것 (지정 안 해서 architecture.md 를 깨뜨린 적 있음)
+
+## 창 수명주기에서 실제로 밟은 지뢰 (재발 방지)
+
+1. `CloseRequested` 를 모든 창에서 가로채면 설정 창 X 버튼이 먹통이 된다 → 위젯 창에만
+2. 워커 스레드에서 `WebviewWindowBuilder::build()` 를 부르면 창은 떠도 **웹뷰가 백지**가 된다 → `run_on_main_thread` 안에서
+3. 버튼을 상태 분기 안에 두면 조회 실패 중에 설정을 못 연다 → 헤더는 항상 렌더링
+
+상세는 [architecture.md](architecture.md) §3.5.

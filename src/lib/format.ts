@@ -42,6 +42,30 @@ export function countdown(resetsAt: string | null | undefined, now: Date = new D
   return `${m}분 후`
 }
 
+/**
+ * 게이지 아래에 붙는 리셋 안내. 남은 시간의 크기에 따라 단위를 바꾼다.
+ * 주간 한도는 며칠 단위라 "3일 후 리셋", 세션은 "9분 후 리셋" 처럼 나온다.
+ */
+export function resetsIn(resetsAt: string | null | undefined, now: Date = new Date()): string {
+  if (!resetsAt) return ''
+  const target = new Date(resetsAt).getTime()
+  if (Number.isNaN(target)) return ''
+
+  const min = Math.floor((target - now.getTime()) / 60_000)
+  if (min <= 0) return '곧 리셋'
+  if (min < 60) return `${min}분 후 리셋`
+
+  const h = Math.floor(min / 60)
+  if (h < 24) {
+    const m = min % 60
+    return m > 0 ? `${h}시간 ${m}분 후 리셋` : `${h}시간 후 리셋`
+  }
+
+  const d = Math.floor(h / 24)
+  const restH = h % 24
+  return restH > 0 ? `${d}일 ${restH}시간 후 리셋` : `${d}일 후 리셋`
+}
+
 /** 확장 모드용 절대 시각 (로컬 타임존). */
 export function absoluteTime(resetsAt: string | null | undefined): string {
   if (!resetsAt) return '–'

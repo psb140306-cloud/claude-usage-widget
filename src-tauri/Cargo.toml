@@ -20,7 +20,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-notification = "2"   # FR-6 Windows 토스트
 tauri-plugin-autostart = "2"      # FR-8 Windows 시작 시 자동 실행
-tauri-plugin-store = "2"          # FR-8 설정 로컬 JSON
+# 설정 저장은 settings.rs 가 직접 한다(원자적 쓰기 + 범위 검증) — 별도 플러그인 불필요
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

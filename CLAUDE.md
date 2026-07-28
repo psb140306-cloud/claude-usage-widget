@@ -4,8 +4,9 @@ Claude Code의 OAuth 인증을 재사용하여 구독 사용량(5시간 세션/�
 
 ## 프로젝트 상태
 
-- 현재 단계: **M1 PoC 통과 (2026-07-27) — Go/No-Go 게이트 ✅ Go** → 다음: `/bootstrap` (기술스택 확정·스캐폴딩) → M2 코어 모듈
-- 데이터 레이어 실현 가능성 확인 완료: `GET /api/oauth/usage` → HTTP 200, 세션/주간/모델별 사용률 + 리셋 시각 확보
+- 현재 단계: **M2 완료 (2026-07-27)** — 실제 사용량이 위젯에 흐른다. 다음은 M3 트레이 반영 / M4 알림·설정 2차 / M5 히스토리
+- M1 PoC ✅ Go → `/bootstrap` ✅ → M2 코어 모듈(credentials/usage_client/poller) ✅ → 위젯 UI + 설정 창 1차 ✅
+- 위젯 표시 항목: 계정·플랜 배지 / 세션·주간·모델별 게이지(각각 리셋 안내) / 모델·effort·thinking
 
 ## 핵심 문서
 
@@ -33,7 +34,8 @@ Claude Code의 OAuth 인증을 재사용하여 구독 사용량(5시간 세션/�
 확정 (2026-07-27 `/bootstrap`). 근거·대안 비교는 [docs/architecture.md](docs/architecture.md).
 
 - **앱**: Tauri 2.11 (Rust 1.95 / edition 2021)
-- **UI**: Svelte 5.56 (runes) + TypeScript 7 + Vite 8 — SvelteKit 미사용, 멀티 엔트리(위젯/설정)
+- **UI**: Svelte 5.56 (runes) + TypeScript 5.9 + Vite 8 — SvelteKit 미사용, 멀티 엔트리(위젯/설정)
+  - ⚠️ TS 는 7 이 아니라 **5.9 에 고정**. svelte-check 4.7 이 TS 7 네이티브 컴파일러에서 `typescript.sys` 를 못 찾고 죽는다 (빌드는 esbuild 라 무관하지만 타입 검사가 막힌다)
 - **HTTP**: reqwest 0.13 (rustls + rustls-native-certs)
 - **저장**: 히스토리 SQLite(rusqlite bundled) / 설정 tauri-plugin-store
 - **차트**: uPlot 1.6

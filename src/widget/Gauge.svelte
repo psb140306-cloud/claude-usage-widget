@@ -1,42 +1,90 @@
 <script lang="ts">
-  import { clampPct, displayPct, severityOf } from '../lib/format'
+  import { clampPct, displayPct, resetsIn, severityOf } from '../lib/format'
 
   interface Props {
     label: string
     utilization: number | null | undefined
+    /** ISO 8601. 있으면 게이지 아래에 "N분 후 리셋" 을 보여준다 */
+    resetsAt?: string | null
+    /** 카운트다운 재계산용 시계 (1분 tick) */
+    now?: Date
     /** 데이터가 오래됐거나 조회 불가일 때 채도를 낮춘다 */
     muted?: boolean
+    /** 현재 사용 중인 모델 한도 표시 */
+    active?: boolean
   }
 
-  let { label, utilization, muted = false }: Props = $props()
+  let {
+    label,
+    utilization,
+    resetsAt = null,
+    now = new Date(),
+    muted = false,
+    active = false,
+  }: Props = $props()
 
   const pct = $derived(clampPct(utilization))
   const severity = $derived(severityOf(utilization))
+  const reset = $derived(resetsIn(resetsAt, now))
 </script>
 
 <div class="gauge" class:muted>
-  <span class="label">{label}</span>
-  <div class="track" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={label}>
+  <div class="top">
+    <span class="label">
+      {label}{#if active}<span class="dot" title="현재 사용 중">●</span>{/if}
+    </span>
+    <span class="value">{displayPct(utilization)}</span>
+  </div>
+
+  <div
+    class="track"
+    role="progressbar"
+    aria-valuenow={pct}
+    aria-valuemin={0}
+    aria-valuemax={100}
+    aria-label={label}
+  >
     <div class="fill" data-severity={severity} style:width="{pct}%"></div>
   </div>
-  <span class="value">{displayPct(utilization)}</span>
+
+  {#if reset}
+    <span class="reset">{reset}</span>
+  {/if}
 </div>
 
 <style>
   .gauge {
-    display: grid;
-    grid-template-columns: 2.4rem 1fr 2.6rem;
-    align-items: center;
-    gap: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
+  .top {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
   }
 
   .label {
-    font-size: 0.7rem;
-    color: var(--text-dim);
+    font-size: 0.72rem;
+    color: var(--text);
+  }
+
+  .dot {
+    margin-left: 0.25rem;
+    font-size: 0.5rem;
+    color: var(--c-normal);
+    vertical-align: middle;
+  }
+
+  .value {
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
   }
 
   .track {
-    height: 6px;
+    height: 5px;
     border-radius: 3px;
     background: var(--track);
     overflow: hidden;
@@ -57,14 +105,14 @@
     background: var(--c-danger);
   }
 
-  .value {
-    font-size: 0.75rem;
+  .reset {
+    font-size: 0.62rem;
+    color: var(--text-dim);
     font-variant-numeric: tabular-nums;
-    text-align: right;
   }
 
   .muted {
-    opacity: 0.45;
+    opacity: 0.5;
     filter: grayscale(1);
   }
 </style>
