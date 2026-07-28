@@ -17,13 +17,14 @@ use std::sync::Arc;
 use tauri::{Emitter, LogicalSize, Manager, WindowEvent};
 
 use environment::Environment;
+use history::History;
 use model::AppState;
 use notifier::{Alert, Notifier};
 use poller::Poller;
 use settings::{Settings, SettingsStore, WidgetMode, EVENT_SETTINGS};
 
 /// 위젯 창 크기 (논리 픽셀). 컴팩트는 게이지 2개만 남기고 접는다.
-const WIDGET_SIZE_EXPANDED: (f64, f64) = (240.0, 215.0);
+const WIDGET_SIZE_EXPANDED: (f64, f64) = (240.0, 300.0);
 const WIDGET_SIZE_COMPACT: (f64, f64) = (240.0, 96.0);
 
 /// 창 라벨. `tauri.conf.json` 및 `capabilities/default.json` 과 일치해야 한다.
@@ -35,6 +36,8 @@ struct AppCtx {
     poller: Arc<Poller>,
     settings: SettingsStore,
     notifier: std::sync::Mutex<Notifier>,
+    /// 히스토리는 열지 못해도 앱은 떠야 하므로 Option 이다 (FR-7 은 권장 기능)
+    history: std::sync::Mutex<Option<History>>,
 }
 
 /// FR-6: 평가된 알림을 Windows 토스트로 내보낸다.
@@ -98,10 +101,25 @@ fn update_settings(
     Ok(next)
 }
 
+/// 기간 히스토리 조회. from/to 는 ISO 8601.
 #[tauri::command]
-fn query_history(_from: String, _to: String) -> Result<Vec<model::HistoryEntry>, String> {
-    // TODO(M5 5.1)
-    Err("M5에서 구현 예정".into())
+fn query_history(
+    ctx: tauri::State<'_, AppCtx>,
+    from: String,
+    to: String,
+) -> Result<Vec<model::HistoryEntry>, String> {
+    let parse = |s: &str| {
+        chrono::DateTime::parse_from_rfc3339(s)
+            .map(|d| d.with_timezone(&chrono::Utc))
+            .map_err(|e| format!("시각 형식이 올바르지 않습니다: {e}"))
+    };
+    let (from, to) = (parse(&from)?, parse(&to)?);
+
+    let guard = ctx.history.lock().unwrap();
+    let Some(history) = guard.as_ref() else {
+        return Err("히스토리 저장소를 열 수 없었습니다".into());
+    };
+    history.query(from, to).map_err(|e| e.to_string())
 }
 
 /// 컴팩트 ↔ 확장 전환. 창 크기를 바꾸고 설정에 남긴다.
@@ -162,25 +180,33 @@ fn hide_widget(app: tauri::AppHandle) -> Result<(), String> {
 /// release 빌드 + private bytes 기준으로 한다.
 #[tauri::command]
 fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
-    if let Some(win) = app.get_webview_window(SETTINGS_WINDOW) {
-        win.show().map_err(|e| e.to_string())?;
-        win.set_focus().map_err(|e| e.to_string())?;
-        return Ok(());
-    }
-
-    // 창 생성은 메인 스레드에서 해야 한다. 커맨드는 워커 스레드에서 실행될 수 있고,
-    // 그 상태로 build() 를 부르면 Windows 에서 창은 떠도 웹뷰가 백지가 된다.
+    // 존재 확인과 생성을 **둘 다 메인 스레드 안에서** 한다.
+    //
+    // 밖에서 확인하고 안에서 만들면 그 사이에 두 번째 요청이 끼어들 수 있다.
+    // 둘 다 "없음"으로 판단해 창이 두 개 겹쳐 뜨고, 하나를 닫아도 똑같은 창이
+    // 뒤에 남아 "안 닫힌다"로 보인다. (실제로 발생)
+    //
+    // 메인 스레드에서 만들어야 하는 이유는 별개다 — 워커 스레드에서 build() 를
+    // 부르면 Windows 에서 창은 떠도 웹뷰가 백지가 된다.
     let handle = app.clone();
     let (tx, rx) = std::sync::mpsc::channel();
 
     app.run_on_main_thread(move || {
+        if let Some(win) = handle.get_webview_window(SETTINGS_WINDOW) {
+            let _ = win.unminimize();
+            let _ = win.show();
+            let _ = win.set_focus();
+            let _ = tx.send(None);
+            return;
+        }
+
         let result = tauri::WebviewWindowBuilder::new(
             &handle,
             SETTINGS_WINDOW,
             tauri::WebviewUrl::App("settings.html".into()),
         )
         .title("Claude Usage Widget 설정")
-        .inner_size(420.0, 560.0)
+        .inner_size(420.0, 620.0)
         .min_inner_size(360.0, 400.0)
         .resizable(true)
         .center()
@@ -308,12 +334,32 @@ pub fn run() {
             let saved = settings.get();
             poller.set_interval_secs(saved.polling_interval_sec);
 
+            // 히스토리는 열지 못해도 사용량 표시는 계속되어야 한다 (FR-7 은 권장 기능)
+            let history = app
+                .path()
+                .app_data_dir()
+                .map_err(|e| e.to_string())
+                .and_then(|dir| {
+                    History::open(&dir.join("history.db")).map_err(|e| e.to_string())
+                })
+                .inspect_err(|e| eprintln!("히스토리 저장소를 열 수 없습니다: {e}"))
+                .ok();
+
+            if let Some(h) = &history {
+                match h.prune(chrono::Utc::now()) {
+                    Ok(n) if n > 0 => eprintln!("히스토리 {n}행 정리(보존 {}일 초과)", history::RETENTION_DAYS),
+                    Err(e) => eprintln!("히스토리 정리 실패: {e}"),
+                    _ => {}
+                }
+            }
+
             app.manage(AppCtx {
                 poller: poller.clone(),
                 notifier: std::sync::Mutex::new(Notifier::new(
                     saved.thresholds.clone(),
                     saved.notify_on_reset,
                 )),
+                history: std::sync::Mutex::new(history),
                 settings,
             });
 
@@ -328,11 +374,19 @@ pub fn run() {
                 let AppState::Ok { snapshot } = state else {
                     return;
                 };
+
+                let ctx = app.state::<AppCtx>();
+
+                // FR-7: 성공한 스냅샷만 기록한다
+                if let Some(h) = ctx.history.lock().unwrap().as_ref() {
+                    if let Err(e) = h.append(snapshot) {
+                        eprintln!("히스토리 저장 실패: {e}");
+                    }
+                }
+
                 if !settings.notifications_enabled {
                     return;
                 }
-
-                let ctx = app.state::<AppCtx>();
                 let alerts = {
                     let mut notifier = ctx.notifier.lock().unwrap();
                     notifier.configure(settings.thresholds.clone(), settings.notify_on_reset);

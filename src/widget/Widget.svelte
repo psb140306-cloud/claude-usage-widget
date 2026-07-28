@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import Chart from './Chart.svelte'
   import Gauge from './Gauge.svelte'
   import { usage } from '../lib/state.svelte'
   import { relativeAge } from '../lib/format'
@@ -106,6 +107,8 @@
     {/if}
 
     {#if !compact}
+      <Chart colors={usage.settings.colors} revision={snap.fetchedAt} />
+
       <footer>
         <span class="session-info">
           {#if session?.modelLabel}{session.modelLabel}{/if}
