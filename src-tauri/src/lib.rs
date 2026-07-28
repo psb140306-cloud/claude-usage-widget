@@ -25,7 +25,7 @@ use settings::{Settings, SettingsStore, WidgetMode, EVENT_SETTINGS};
 
 /// 위젯 창 크기 (논리 픽셀). 컴팩트는 게이지 2개만 남기고 접는다.
 const WIDGET_SIZE_EXPANDED: (f64, f64) = (240.0, 300.0);
-const WIDGET_SIZE_COMPACT: (f64, f64) = (240.0, 96.0);
+const WIDGET_SIZE_COMPACT: (f64, f64) = (240.0, 106.0);
 
 /// 창 라벨. `tauri.conf.json` 및 `capabilities/default.json` 과 일치해야 한다.
 const WIDGET_WINDOW: &str = "widget";
@@ -81,6 +81,28 @@ fn get_settings(ctx: tauri::State<'_, AppCtx>) -> Settings {
     ctx.settings.get()
 }
 
+/// 설정을 저장하고 **즉시 적용**한다.
+///
+/// 저장만 하면 아무 일도 일어나지 않는다. 돌고 있는 폴링 루프와 열려 있는 창들에
+/// 각각 알려야 한다. 설정을 바꾸는 경로가 여럿이므로(`update_settings`,
+/// `set_widget_mode`) 한 곳에 모아 두지 않으면 한쪽만 반영되는 사고가 난다.
+/// (실제로 `set_widget_mode` 가 이벤트를 안 보내 창만 줄고 UI 는 그대로였다)
+fn apply_settings(
+    app: &tauri::AppHandle,
+    ctx: &AppCtx,
+    patch: serde_json::Value,
+) -> Result<Settings, String> {
+    let next = ctx.settings.update(patch).map_err(|e| e.to_string())?;
+
+    ctx.poller.set_interval_secs(next.polling_interval_sec);
+
+    if let Err(e) = app.emit(EVENT_SETTINGS, &next) {
+        eprintln!("설정 이벤트 발행 실패: {e}");
+    }
+
+    Ok(next)
+}
+
 /// 부분 갱신 → 저장 → 즉시 적용. 보낸 키만 바뀐다.
 #[tauri::command]
 fn update_settings(
@@ -88,17 +110,7 @@ fn update_settings(
     ctx: tauri::State<'_, AppCtx>,
     patch: serde_json::Value,
 ) -> Result<Settings, String> {
-    let next = ctx.settings.update(patch).map_err(|e| e.to_string())?;
-
-    // 폴링 주기는 저장만 해서는 반영되지 않는다 — 돌고 있는 루프에 알려야 한다
-    ctx.poller.set_interval_secs(next.polling_interval_sec);
-
-    // 열려 있는 창들이 색상을 바로 다시 칠하도록
-    if let Err(e) = app.emit(EVENT_SETTINGS, &next) {
-        eprintln!("설정 이벤트 발행 실패: {e}");
-    }
-
-    Ok(next)
+    apply_settings(&app, &ctx, patch)
 }
 
 /// 기간 히스토리 조회. from/to 는 ISO 8601.
@@ -139,6 +151,10 @@ fn set_widget_mode(
         .get_webview_window(WIDGET_WINDOW)
         .ok_or("위젯 창을 찾을 수 없습니다")?;
 
+    // 창 크기보다 **UI 전환을 먼저** 알린다. 순서가 반대면 확장 레이아웃이
+    // 잠깐 좁은 창에 잘려 보인다.
+    apply_settings(&app, &ctx, serde_json::json!({ "widgetMode": target }))?;
+
     // 우측 하단에 붙여 쓰는 위젯이므로, 크기가 바뀌어도 그 모서리는 그대로 둔다.
     // 좌상단을 고정하면 접을 때 화면 가운데로 떠오른 것처럼 보인다.
     let scale = win.scale_factor().map_err(|e| e.to_string())?;
@@ -151,10 +167,6 @@ fn set_widget_mode(
     let after_h = (size.1 * scale).round() as i32;
     let y = anchor_bottom(pos.y, before.height, after_h);
     win.set_position(tauri::PhysicalPosition::new(pos.x, y))
-        .map_err(|e| e.to_string())?;
-
-    ctx.settings
-        .update(serde_json::json!({ "widgetMode": target }))
         .map_err(|e| e.to_string())?;
 
     Ok(())
