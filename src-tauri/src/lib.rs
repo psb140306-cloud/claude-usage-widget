@@ -18,6 +18,7 @@ use tauri::{Emitter, LogicalSize, Manager, WindowEvent};
 
 use environment::Environment;
 use model::AppState;
+use notifier::{Alert, Notifier};
 use poller::Poller;
 use settings::{Settings, SettingsStore, WidgetMode, EVENT_SETTINGS};
 
@@ -33,6 +34,24 @@ const SETTINGS_WINDOW: &str = "settings";
 struct AppCtx {
     poller: Arc<Poller>,
     settings: SettingsStore,
+    notifier: std::sync::Mutex<Notifier>,
+}
+
+/// FR-6: 평가된 알림을 Windows 토스트로 내보낸다.
+fn send_alerts(app: &tauri::AppHandle, alerts: &[Alert]) {
+    use tauri_plugin_notification::NotificationExt;
+
+    for alert in alerts {
+        if let Err(e) = app
+            .notification()
+            .builder()
+            .title(alert.title())
+            .body(alert.body())
+            .show()
+        {
+            eprintln!("알림 발송 실패: {e}");
+        }
+    }
 }
 
 // ─────────────────────────── 커맨드 (프론트 `src/lib/ipc.ts` 와 1:1) ───────────────────────────
@@ -291,15 +310,35 @@ pub fn run() {
 
             app.manage(AppCtx {
                 poller: poller.clone(),
+                notifier: std::sync::Mutex::new(Notifier::new(
+                    saved.thresholds.clone(),
+                    saved.notify_on_reset,
+                )),
                 settings,
             });
 
             tray::build(app.handle(), on_tray_menu)?;
 
-            // 상태가 바뀌면 트레이 아이콘 색과 툴팁을 함께 갱신한다 (FR-5).
+            // 상태가 바뀌면 트레이(FR-5)와 알림(FR-6)을 함께 처리한다.
             poller.set_observer(|app, state| {
-                let colors = app.state::<AppCtx>().settings.get().colors;
-                tray::update(app, state, &colors);
+                let settings = app.state::<AppCtx>().settings.get();
+                tray::update(app, state, &settings.colors);
+
+                // 스테일한 값으로 알림을 울리면 안 된다 — 이미 지난 상태일 수 있다
+                let AppState::Ok { snapshot } = state else {
+                    return;
+                };
+                if !settings.notifications_enabled {
+                    return;
+                }
+
+                let ctx = app.state::<AppCtx>();
+                let alerts = {
+                    let mut notifier = ctx.notifier.lock().unwrap();
+                    notifier.configure(settings.thresholds.clone(), settings.notify_on_reset);
+                    notifier.evaluate(snapshot)
+                };
+                send_alerts(app, &alerts);
             });
 
             // 위젯은 config 에서 visible:false 로 만들어 두고, 배치한 뒤에 보여준다.
