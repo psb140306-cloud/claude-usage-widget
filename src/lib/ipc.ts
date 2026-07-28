@@ -36,6 +36,9 @@ export const queryHistory = (from: string, to: string) =>
 export const setWidgetMode = (mode: 'compact' | 'expanded') =>
   invoke<void>('set_widget_mode', { mode })
 
+/** 위젯을 트레이로 숨긴다. 앱은 계속 상주한다. */
+export const hideWidget = () => invoke<void>('hide_widget')
+
 export const openSettingsWindow = () => invoke<void>('open_settings_window')
 
 /** 상태 변경 구독. 반환된 함수를 호출하면 구독 해제. */

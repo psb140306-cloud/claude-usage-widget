@@ -85,7 +85,8 @@ impl Default for Settings {
             theme: Theme::System,
             opacity: 0.85,
             auto_start: false,
-            widget_mode: WidgetMode::Compact,
+            // 처음 실행에서는 정보를 다 보여준다. 접는 건 사용자가 정한다.
+            widget_mode: WidgetMode::Expanded,
             widget_position: None,
             colors: Colors::default(),
         }

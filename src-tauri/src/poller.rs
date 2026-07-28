@@ -53,6 +53,10 @@ pub struct Poller {
     last_manual: Mutex<Option<Instant>>,
     /// 폴링 주기. M4 설정에서 런타임 변경할 수 있도록 원자값으로 둔다.
     interval_secs: AtomicU64,
+    /// 상태 변경 관찰자 (트레이 아이콘·툴팁 갱신).
+    /// `Arc` 로 들고 있어 호출할 때 잠금을 잡은 채 실행하지 않는다.
+    #[allow(clippy::type_complexity)]
+    observer: Mutex<Option<Arc<dyn Fn(&AppHandle, &AppState) + Send + Sync>>>,
 }
 
 impl Poller {
@@ -68,6 +72,7 @@ impl Poller {
             refresh: Notify::new(),
             last_manual: Mutex::new(None),
             interval_secs: AtomicU64::new(DEFAULT_INTERVAL_SECS),
+            observer: Mutex::new(None),
         }
     }
 
@@ -113,6 +118,14 @@ impl Poller {
 
         self.refresh.notify_one();
         Ok(())
+    }
+
+    /// 상태가 바뀔 때마다 불릴 관찰자를 등록한다 (트레이 갱신용).
+    ///
+    /// 이벤트를 다시 역직렬화해 받는 대신 콜백으로 넘긴다 — 왕복이 없고,
+    /// poller 가 트레이를 몰라도 된다.
+    pub fn set_observer(&self, observer: impl Fn(&AppHandle, &AppState) + Send + Sync + 'static) {
+        *self.observer.lock().unwrap() = Some(Arc::new(observer));
     }
 
     /// 폴링 루프를 시작한다. 앱이 살아 있는 동안 계속 돈다.
@@ -208,9 +221,16 @@ impl Poller {
 
     fn publish(&self, app: &AppHandle, state: AppState) {
         *self.state.lock().unwrap() = state.clone();
+
         // 이벤트 발행 실패가 폴링을 멈추게 해서는 안 된다 (창이 아직 없을 수 있다)
         if let Err(e) = app.emit(EVENT_STATE, &state) {
             eprintln!("상태 이벤트 발행 실패: {e}");
+        }
+
+        // 관찰자는 잠금을 놓고 부른다 — 안에서 다시 poller 를 건드려도 교착이 없도록
+        let observer = self.observer.lock().unwrap().clone();
+        if let Some(f) = observer {
+            f(app, &state);
         }
     }
 }

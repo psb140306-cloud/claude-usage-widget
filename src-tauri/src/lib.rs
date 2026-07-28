@@ -9,18 +9,21 @@ mod model;
 mod notifier;
 mod poller;
 mod settings;
+mod tray;
 mod usage_client;
 
 use std::sync::Arc;
 
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
-use tauri::tray::TrayIconBuilder;
-use tauri::{Emitter, Manager, WindowEvent};
+use tauri::{Emitter, LogicalSize, Manager, WindowEvent};
 
 use environment::Environment;
 use model::AppState;
 use poller::Poller;
-use settings::{Settings, SettingsStore, EVENT_SETTINGS};
+use settings::{Settings, SettingsStore, WidgetMode, EVENT_SETTINGS};
+
+/// 위젯 창 크기 (논리 픽셀). 컴팩트는 게이지 2개만 남기고 접는다.
+const WIDGET_SIZE_EXPANDED: (f64, f64) = (240.0, 215.0);
+const WIDGET_SIZE_COMPACT: (f64, f64) = (240.0, 96.0);
 
 /// 창 라벨. `tauri.conf.json` 및 `capabilities/default.json` 과 일치해야 한다.
 const WIDGET_WINDOW: &str = "widget";
@@ -82,10 +85,51 @@ fn query_history(_from: String, _to: String) -> Result<Vec<model::HistoryEntry>,
     Err("M5에서 구현 예정".into())
 }
 
+/// 컴팩트 ↔ 확장 전환. 창 크기를 바꾸고 설정에 남긴다.
 #[tauri::command]
-fn set_widget_mode(_mode: String) -> Result<(), String> {
-    // TODO(M3 3.1): 컴팩트(220×90) ↔ 확장(320×360) 창 크기 전환 + 설정 저장
-    Err("M3에서 구현 예정".into())
+fn set_widget_mode(
+    app: tauri::AppHandle,
+    ctx: tauri::State<'_, AppCtx>,
+    mode: String,
+) -> Result<(), String> {
+    let (target, size) = match mode.as_str() {
+        "compact" => (WidgetMode::Compact, WIDGET_SIZE_COMPACT),
+        "expanded" => (WidgetMode::Expanded, WIDGET_SIZE_EXPANDED),
+        other => return Err(format!("알 수 없는 모드: {other}")),
+    };
+
+    let win = app
+        .get_webview_window(WIDGET_WINDOW)
+        .ok_or("위젯 창을 찾을 수 없습니다")?;
+
+    // 우측 하단에 붙여 쓰는 위젯이므로, 크기가 바뀌어도 그 모서리는 그대로 둔다.
+    // 좌상단을 고정하면 접을 때 화면 가운데로 떠오른 것처럼 보인다.
+    let scale = win.scale_factor().map_err(|e| e.to_string())?;
+    let before = win.outer_size().map_err(|e| e.to_string())?;
+    let pos = win.outer_position().map_err(|e| e.to_string())?;
+
+    win.set_size(LogicalSize::new(size.0, size.1))
+        .map_err(|e| e.to_string())?;
+
+    let after_h = (size.1 * scale).round() as i32;
+    let y = anchor_bottom(pos.y, before.height, after_h);
+    win.set_position(tauri::PhysicalPosition::new(pos.x, y))
+        .map_err(|e| e.to_string())?;
+
+    ctx.settings
+        .update(serde_json::json!({ "widgetMode": target }))
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// 위젯을 트레이로 숨긴다. 앱은 계속 상주한다 (FR-5).
+#[tauri::command]
+fn hide_widget(app: tauri::AppHandle) -> Result<(), String> {
+    app.get_webview_window(WIDGET_WINDOW)
+        .ok_or("위젯 창을 찾을 수 없습니다")?
+        .hide()
+        .map_err(|e| e.to_string())
 }
 
 /// 설정 창은 **지연 생성**한다.
@@ -139,6 +183,14 @@ fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
 
 // ─────────────────────────── 창 배치 ───────────────────────────
 
+/// 크기가 바뀌어도 **아래 모서리**가 제자리에 있도록 새 y 좌표를 구한다.
+///
+/// 좌상단을 고정하면 접을 때 위젯이 화면 가운데로 떠오른 것처럼 보인다.
+/// 우측 하단에 붙여 쓰는 위젯이라 아래를 기준으로 잡는 게 자연스럽다.
+fn anchor_bottom(top: i32, old_height: u32, new_height: i32) -> i32 {
+    top + old_height as i32 - new_height
+}
+
 /// 화면 가장자리로부터의 여백 (논리 픽셀)
 const WIDGET_MARGIN: f64 = 16.0;
 
@@ -164,48 +216,31 @@ fn place_bottom_right(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     window.set_position(tauri::PhysicalPosition::new(x, y))
 }
 
-// ─────────────────────────── 트레이 (FR-5) ───────────────────────────
+// ─────────────────────────── 트레이 메뉴 처리 (FR-5) ───────────────────────────
 
-fn setup_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
-    let toggle = MenuItem::with_id(app, "toggle", "위젯 표시/숨김", true, None::<&str>)?;
-    let refresh = MenuItem::with_id(app, "refresh", "지금 새로고침", true, None::<&str>)?;
-    let settings_item = MenuItem::with_id(app, "settings", "설정", true, None::<&str>)?;
-    let sep = PredefinedMenuItem::separator(app)?;
-    let quit = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
-
-    let menu = Menu::with_items(app, &[&toggle, &refresh, &settings_item, &sep, &quit])?;
-
-    let mut builder = TrayIconBuilder::with_id("main")
-        .tooltip("Claude Usage Widget")
-        .menu(&menu)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "toggle" => {
-                if let Some(w) = app.get_webview_window(WIDGET_WINDOW) {
-                    let visible = w.is_visible().unwrap_or(false);
-                    let _ = if visible { w.hide() } else { w.show() };
-                }
+fn on_tray_menu(app: &tauri::AppHandle, id: &str) {
+    match id {
+        tray::ITEM_TOGGLE => {
+            if let Some(w) = app.get_webview_window(WIDGET_WINDOW) {
+                let visible = w.is_visible().unwrap_or(false);
+                let _ = if visible { w.hide() } else { w.show() };
             }
-            "refresh" => {
-                if let Some(ctx) = app.try_state::<AppCtx>() {
-                    // 스로틀에 걸리면 조용히 무시한다 (트레이 메뉴엔 알릴 곳이 없다)
-                    let _ = ctx.poller.request_refresh();
-                }
+        }
+        tray::ITEM_REFRESH => {
+            if let Some(ctx) = app.try_state::<AppCtx>() {
+                // 스로틀에 걸리면 조용히 무시한다 (트레이 메뉴엔 알릴 곳이 없다)
+                let _ = ctx.poller.request_refresh();
             }
-            "settings" => {
-                let _ = open_settings_window(app.clone());
+        }
+        tray::ITEM_SETTINGS => {
+            if let Err(e) = open_settings_window(app.clone()) {
+                eprintln!("{e}");
             }
-            // 창을 닫아도 앱은 살아 있고, 완전 종료는 여기서만 (FR-5)
-            "quit" => app.exit(0),
-            _ => {}
-        });
-
-    // TODO(M3 3.2): 사용률 구간(정상/주의/위험)에 따라 아이콘 색상 교체
-    if let Some(icon) = app.default_window_icon() {
-        builder = builder.icon(icon.clone());
+        }
+        // 창을 닫아도 앱은 살아 있고, 완전 종료는 여기서만 (FR-5)
+        tray::ITEM_QUIT => app.exit(0),
+        _ => {}
     }
-
-    builder.build(app)?;
-    Ok(())
 }
 
 // ─────────────────────────── 엔트리 ───────────────────────────
@@ -238,6 +273,7 @@ pub fn run() {
             update_settings,
             query_history,
             set_widget_mode,
+            hide_widget,
             open_settings_window,
         ])
         .setup(|app| {
@@ -250,18 +286,32 @@ pub fn run() {
 
             let poller = Arc::new(Poller::new());
             let settings = SettingsStore::load(settings_path);
-            poller.set_interval_secs(settings.get().polling_interval_sec);
+            let saved = settings.get();
+            poller.set_interval_secs(saved.polling_interval_sec);
 
             app.manage(AppCtx {
                 poller: poller.clone(),
                 settings,
             });
 
-            setup_tray(app.handle())?;
+            tray::build(app.handle(), on_tray_menu)?;
+
+            // 상태가 바뀌면 트레이 아이콘 색과 툴팁을 함께 갱신한다 (FR-5).
+            poller.set_observer(|app, state| {
+                let colors = app.state::<AppCtx>().settings.get().colors;
+                tray::update(app, state, &colors);
+            });
 
             // 위젯은 config 에서 visible:false 로 만들어 두고, 배치한 뒤에 보여준다.
             // 그러지 않으면 좌상단에 떴다가 우측 하단으로 튀는 게 보인다.
             if let Some(widget) = app.get_webview_window(WIDGET_WINDOW) {
+                // 저장된 모드가 컴팩트면 그 크기로 시작한다
+                if saved.widget_mode == WidgetMode::Compact {
+                    let _ = widget.set_size(LogicalSize::new(
+                        WIDGET_SIZE_COMPACT.0,
+                        WIDGET_SIZE_COMPACT.1,
+                    ));
+                }
                 if let Err(e) = place_bottom_right(&widget) {
                     // 배치 실패가 창을 못 띄우는 사유가 되면 안 된다
                     eprintln!("위젯 기본 위치 설정 실패(기본 배치로 진행): {e}");
@@ -289,4 +339,29 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("Tauri 앱 실행 실패");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 접었다 펴도 아래 모서리는 그대로여야 한다.
+    #[test]
+    fn resize_keeps_bottom_edge() {
+        // 확장(215) → 컴팩트(96): 아래가 1376 으로 유지되도록 위가 내려간다
+        let top = 1161;
+        let bottom = top + 215;
+        let new_top = anchor_bottom(top, 215, 96);
+        assert_eq!(new_top + 96, bottom);
+        assert_eq!(new_top, 1280);
+
+        // 다시 펼치면 원래 자리로 돌아온다
+        assert_eq!(anchor_bottom(new_top, 96, 215), top);
+    }
+
+    #[test]
+    fn compact_is_shorter_but_same_width() {
+        assert_eq!(WIDGET_SIZE_COMPACT.0, WIDGET_SIZE_EXPANDED.0);
+        assert!(WIDGET_SIZE_COMPACT.1 < WIDGET_SIZE_EXPANDED.1);
+    }
 }

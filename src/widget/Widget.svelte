@@ -3,7 +3,11 @@
   import Gauge from './Gauge.svelte'
   import { usage } from '../lib/state.svelte'
   import { relativeAge } from '../lib/format'
-  import { openSettingsWindow, refreshNow } from '../lib/ipc'
+  import { hideWidget, openSettingsWindow, refreshNow, setWidgetMode } from '../lib/ipc'
+
+  function report(action: string) {
+    return (e: unknown) => console.error(`${action} 실패:`, e)
+  }
 
   onMount(() => {
     // start() 는 async 이므로 정리 함수를 별도로 보관한다
@@ -27,6 +31,7 @@
   const account = $derived(usage.env?.account)
   const session = $derived(usage.env?.session)
   const modelWindow = $derived(usage.primaryModelWindow)
+  const compact = $derived(usage.compact)
 </script>
 
 <!-- data-tauri-drag-region: 이 영역을 잡고 끌면 창이 이동한다 -->
@@ -40,11 +45,30 @@
       {#if account?.displayName}{account.displayName}{/if}
       {#if account?.planLabel}<span class="plan">{account.planLabel}</span>{/if}
     </span>
-    <button
-      class="cog"
-      onclick={() => openSettingsWindow().catch((e) => console.error('설정 창 열기 실패:', e))}
-      title="설정"
-      aria-label="설정">⚙</button>
+
+    <span class="controls">
+      <button
+        class="ctl"
+        onclick={() => openSettingsWindow().catch(report('설정 창 열기'))}
+        title="설정"
+        aria-label="설정">⚙</button>
+      <!--
+        진짜 최소화(window.minimize)는 쓰지 않는다. 이 창은 skipTaskbar 라
+        최소화하면 작업 표시줄에 나타나지 않아 되돌릴 방법이 없다.
+        대신 컴팩트 모드로 접는다 (PRD FR-4).
+      -->
+      <button
+        class="ctl"
+        onclick={() =>
+          setWidgetMode(compact ? 'expanded' : 'compact').catch(report('모드 전환'))}
+        title={compact ? '펼치기' : '접기'}
+        aria-label={compact ? '펼치기' : '접기'}>{compact ? '▢' : '–'}</button>
+      <button
+        class="ctl close"
+        onclick={() => hideWidget().catch(report('숨기기'))}
+        title="숨기기 (트레이에서 다시 열 수 있습니다)"
+        aria-label="숨기기">✕</button>
+    </span>
   </header>
 
   {#if state.kind === 'loading'}
@@ -55,21 +79,22 @@
     <p class="msg">사용량을 가져올 수 없습니다</p>
     <button onclick={() => refreshNow()}>다시 시도</button>
   {:else if snap}
+    <!-- 컴팩트 모드에서는 게이지 2개만 남기고 리셋 안내·모델별 한도·푸터를 접는다 -->
     <Gauge
       label="세션 (5시간)"
       utilization={snap.session?.utilization}
-      resetsAt={snap.session?.resetsAt}
+      resetsAt={compact ? null : snap.session?.resetsAt}
       now={usage.now}
       muted={stale}
     />
     <Gauge
       label="주간 (7일)"
       utilization={snap.weekly?.utilization}
-      resetsAt={snap.weekly?.resetsAt}
+      resetsAt={compact ? null : snap.weekly?.resetsAt}
       now={usage.now}
       muted={stale}
     />
-    {#if modelWindow}
+    {#if modelWindow && !compact}
       <Gauge
         label={`주간 (${modelWindow.displayName})`}
         utilization={modelWindow.utilization}
@@ -80,16 +105,18 @@
       />
     {/if}
 
-    <footer>
-      <span class="session-info">
-        {#if session?.modelLabel}{session.modelLabel}{/if}
-        {#if session?.effort}<span class="sep">·</span>{session.effort}{/if}
-        {#if session?.thinking}<span class="sep">·</span><span title="thinking 활성">thinking</span>{/if}
-      </span>
-      {#if stale}
-        <span class="badge">{relativeAge(snap.fetchedAt, usage.now)}</span>
-      {/if}
-    </footer>
+    {#if !compact}
+      <footer>
+        <span class="session-info">
+          {#if session?.modelLabel}{session.modelLabel}{/if}
+          {#if session?.effort}<span class="sep">·</span>{session.effort}{/if}
+          {#if session?.thinking}<span class="sep">·</span><span title="thinking 활성">thinking</span>{/if}
+        </span>
+        {#if stale}
+          <span class="badge">{relativeAge(snap.fetchedAt, usage.now)}</span>
+        {/if}
+      </footer>
+    {/if}
   {/if}
 </main>
 
@@ -131,18 +158,36 @@
     font-size: 0.6rem;
   }
 
-  .cog {
+  .controls {
+    display: flex;
     flex: none;
-    padding: 0 0.2rem;
-    font-size: 0.72rem;
+    align-items: center;
+    gap: 0.1rem;
+  }
+
+  .ctl {
+    /* 프레임리스 창의 창 버튼. 트레이 위젯이라 실제 최소화 대신 접기를 쓴다 */
+    display: grid;
+    place-items: center;
+    width: 1.05rem;
+    height: 1.05rem;
+    padding: 0;
+    font: inherit;
+    font-size: 0.7rem;
     line-height: 1;
     color: var(--text-dim);
     background: none;
     border: none;
+    border-radius: 4px;
     cursor: pointer;
   }
-  .cog:hover {
+  .ctl:hover {
     color: var(--text);
+    background: var(--track);
+  }
+  .close:hover {
+    color: #fff;
+    background: #c42b1c; /* Windows 11 창 닫기 버튼과 같은 계열 */
   }
 
   footer {
@@ -182,7 +227,7 @@
     background: var(--track);
   }
 
-  button:not(.cog) {
+  button:not(.ctl) {
     align-self: center;
     padding: 0.2rem 0.6rem;
     font: inherit;

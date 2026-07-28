@@ -164,6 +164,24 @@ impl RawUsage {
     }
 }
 
+/// 사용률 구간 (PRD FR-4: 정상 <60 / 주의 60~85 / 위험 >85).
+/// 프론트의 `severityOf()` 와 같은 기준이어야 한다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    Normal,
+    Warning,
+    Danger,
+}
+
+pub fn severity_of(utilization: Option<f64>) -> Severity {
+    match utilization {
+        Some(u) if u > 85.0 => Severity::Danger,
+        Some(u) if u >= 60.0 => Severity::Warning,
+        _ => Severity::Normal,
+    }
+}
+
 impl UsageSnapshot {
     /// 트레이 아이콘 색상 기준: 세션/주간 중 최고값.
     pub fn peak_utilization(&self) -> Option<f64> {

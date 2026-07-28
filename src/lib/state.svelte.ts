@@ -2,8 +2,16 @@ import type { UnlistenFn } from '@tauri-apps/api/event'
 import { getEnvironment, getSettings, getState, onEnvironment, onSettings, onState } from './ipc'
 import type { AppState, Environment, Settings, UsageSnapshot } from './types'
 
-/** Rust 의 `Colors::default()` 와 같은 값. 백엔드 응답 전 첫 프레임용. */
-const FALLBACK_SETTINGS: Pick<Settings, 'opacity' | 'colors'> = {
+/** 백엔드 응답 전 첫 프레임용. Rust 의 `Settings::default()` 와 같은 값. */
+const FALLBACK_SETTINGS: Settings = {
+  pollingIntervalSec: 60,
+  thresholds: [80, 95],
+  notificationsEnabled: true,
+  notifyOnReset: false,
+  theme: 'system',
+  autoStart: false,
+  widgetMode: 'expanded',
+  widgetPosition: null,
   opacity: 0.85,
   colors: {
     text: '#f3f3f3',
@@ -36,8 +44,12 @@ export function withAlpha(hex: string, alpha: number): string {
 class UsageStore {
   state = $state<AppState>({ kind: 'loading' })
   env = $state<Environment | null>(null)
-  settings = $state<Pick<Settings, 'opacity' | 'colors'>>(FALLBACK_SETTINGS)
+  settings = $state<Settings>(FALLBACK_SETTINGS)
   now = $state<Date>(new Date())
+
+  get compact(): boolean {
+    return this.settings.widgetMode === 'compact'
+  }
 
   /** 상태 종류와 무관하게 마지막으로 받은 스냅샷 (스테일 표시용). */
   get snapshot(): UsageSnapshot | null {
