@@ -34,6 +34,10 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "publisher": "psb140306",
+    "category": "Utility",
+    "shortDescription": "Claude Code 구독 사용량 위젯",
+    "longDescription": "Claude Code의 OAuth 인증을 재사용해 5시간 세션·주간 한도 사용률을 상시 표시하는 트레이 + 플로팅 위젯입니다. 사용량 데이터는 외부로 전송되지 않습니다.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -42,7 +46,9 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "languages": ["Korean", "English"],
+        "displayLanguageSelector": false
       }
     }
   }

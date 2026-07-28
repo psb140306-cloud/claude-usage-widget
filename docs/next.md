@@ -1,58 +1,61 @@
 # 다음 세션 가이드
 
-> 작성: 2026-07-27 (M1 PoC → /bootstrap → M2 완료)
+> 작성: 2026-07-28 (M1~M6 1차 완료)
 
-## 즉시 검증 (다음 세션 첫 1분)
+## 즉시 검증
 ```powershell
-cd src-tauri; cargo test --lib     # 33/33 통과해야 함
+cd src-tauri; cargo test --lib     # 51/51
 npm run check                       # 0 errors
-npm run tauri:dev                   # 우측 하단에 위젯, 실제 사용량 표시
+npm run tauri:dev                   # 우측 하단 위젯
+npm run tauri:build                 # 인스톨러 재생성
 ```
-PoC 스크립트로 값 대조: `powershell -ExecutionPolicy Bypass -File scripts\m1-poc-usage.ps1`
 
 ## 완료 상태
 
 | 마일스톤 | 상태 |
 |---|---|
-| M1 데이터 레이어 PoC | ✅ Go — `GET /api/oauth/usage` HTTP 200 |
-| M2 2.1 스캐폴딩 | ✅ Tauri 2 + Svelte 5 + SQLite |
-| M2 2.2 코어 모듈 | ✅ credentials / usage_client / poller, 실데이터 흐름 확인 |
-| M3 3.1 위젯 창 | ✅ 게이지 3개 + 게이지별 리셋 안내 + 계정·플랜·모델·effort·thinking |
-| M4 4.2 설정(1차) | ✅ 색상 7종 + 불투명도 + 폴링 주기, 즉시 저장·적용 |
+| M1 데이터 레이어 PoC | ✅ `GET /api/oauth/usage` HTTP 200 |
+| M2 스캐폴딩 + 코어 모듈 | ✅ credentials / usage_client / poller |
+| M3 위젯 & 트레이 | ✅ 게이지 3개·창버튼·트레이 색상/툴팁 |
+| M4 알림 & 설정 | ✅ 임계값 토스트, 색상·알림·자동시작 설정 |
+| M5 히스토리 & 차트 | ✅ SQLite 90일 보관, uPlot 24시간 추이 |
+| M6 패키징 | ⚠️ 인스톨러 생성 완료, **메모리 KPI 미달성** |
 
-**위젯 표시 항목** (240×215, 작업 영역 우측 하단)
-```
-성훈  [Max 20x]                    ⚙
-세션 (5시간)                      9%
-▬▬▭▭▭▭▭▭▭▭   2시간 11분 후 리셋
-주간 (7일)                       27%
-▬▬▬▬▭▭▭▭▭▭   2일 9시간 후 리셋
-주간 (Fable) ●                   29%
-▬▬▬▬▭▭▭▭▭▭   2일 9시간 후 리셋
-Opus 5 · max · thinking
-```
+산출물: `src-tauri/target/release/bundle/nsis/Claude Usage Widget_0.1.0_x64-setup.exe` (2.83MB)
 
-## 다음 작업 우선순위
+## 사용자 판단이 필요한 것
 
-1. **M3 3.2 트레이** — 사용률 구간별 아이콘 색상, 툴팁 요약(세션 % · 주간 % · 리셋). poller 가 이미 상태를 들고 있으니 구독만 붙이면 된다
-2. **M4 4.1 알림** — `notifier.rs` 의 `evaluate()` 가 `todo!()`. 임계값 80/95%, 동일 임계값·동일 리셋 주기 내 1회
-3. **M4 4.2 설정 2차** — 알림 on/off, 임계값, 테마, 자동 시작
-4. **M5 히스토리** — `history.rs` 의 append/query/prune 이 `todo!()`. poller 성공 시 append 연결
-5. **M6 패키징** — release 빌드 메모리 검증(private bytes), NSIS 인스톨러
+1. **메모리 목표** — release private bytes 177.3MB로 PRD 150MB를 넘는다.
+   앱 자체는 7.6MB이고 나머지는 WebView2 6개 프로세스라 앱 코드로 줄일 여지가 없다.
+   → 목표를 상향할지, 네이티브 UI로 갈지 결정 필요 (tasks.md M6 참조)
+2. **설치/제거 테스트** — 실제 시스템에 설치가 필요해 보류 중
+3. **`/usage` 대조** (M1 잔여) — 대화형 세션에서 `/usage` 실행 후 위젯 값과 비교
 
-## 알려진 이슈 / 모니터 대상
+## 남은 작업
 
-- **비공식 엔드포인트** — 변경 시 수정 범위는 `usage_client.rs` + `model.rs` 의 `Raw*` 로 한정
-- **429 주의** — 앱을 자주 재시작하며 폴링하면 요청 제한에 걸린다. 걸리면 스테일로 강등되고 마지막 값 + "N분 전 기준"이 표시된다 (실제로 확인함)
-- **TypeScript 5.9 고정** — svelte-check 4.7 이 TS 7 에서 죽는다. svelte-check 가 TS 7 을 지원하면 올릴 것
-- **트랜스크립트 스캔 비용** — `environment.rs` 가 매 폴링마다 `~/.claude/projects` 를 깊이 3까지 훑는다. 프로젝트·세션이 아주 많아지면 캐시가 필요할 수 있다
-- **메모리** — debug 기준. PRD 150MB 검증은 M6 에서 release + private bytes 로
-- **PowerShell 인코딩** — .ps1 은 UTF-8 BOM 필수. `Get-Content`/`Set-Content` 로 한글 파일을 다룰 때 `-Encoding utf8` 을 반드시 지정할 것 (지정 안 해서 architecture.md 를 깨뜨린 적 있음)
+- 24시간 상주 테스트 (크래시·메모리 누수)
+- KPI 검증: `/usage` 대조 10회, 알림 적시성, 재부팅 자동 시작
+- 알림 실동작 확인 — **설치 후에** 해야 한다. 설치되지 않은 exe 는
+  AppUserModelID 가 없어 Windows 토스트가 표시되지 않을 수 있다
+- 위젯 위치 저장·복원 (M3 3.1 잔여, 현재는 매 실행 우측 하단 고정)
+- 요일별 집계 뷰 (M5 5.2 잔여)
+- (선택) GitHub Releases 자동 업데이트
 
-## 창 수명주기에서 실제로 밟은 지뢰 (재발 방지)
+## 알려진 이슈
+
+- **비공식 엔드포인트** — 변경 시 수정 범위는 `usage_client.rs` + `model.rs` 의 `Raw*`
+- **429** — 재시작을 반복하며 폴링하면 요청 제한에 걸린다. 스테일로 강등되고 마지막 값이 유지된다 (실제 확인)
+- **트레이 아이콘이 오버플로에 숨음** — Windows 11 기본 정책. 사용자가 고정해야 한다
+- **TypeScript 5.9 고정** — svelte-check 4.7 이 TS 7 에서 죽는다
+- **트랜스크립트 스캔 비용** — 매 폴링마다 `~/.claude/projects` 를 깊이 3까지 훑는다. 세션이 아주 많아지면 캐시 필요
+- **PowerShell 인코딩** — .ps1 은 UTF-8 BOM 필수. `Get-Content`/`Set-Content` 에 `-Encoding utf8` 을 반드시 지정
+
+## 개발 중 밟은 지뢰 (재발 방지)
+
+전부 "조용히 안 되는" 부류였다. 상세는 [architecture.md](architecture.md) §3.5.
 
 1. `CloseRequested` 를 모든 창에서 가로채면 설정 창 X 버튼이 먹통이 된다 → 위젯 창에만
-2. 워커 스레드에서 `WebviewWindowBuilder::build()` 를 부르면 창은 떠도 **웹뷰가 백지**가 된다 → `run_on_main_thread` 안에서
-3. 버튼을 상태 분기 안에 두면 조회 실패 중에 설정을 못 연다 → 헤더는 항상 렌더링
-
-상세는 [architecture.md](architecture.md) §3.5.
+2. 워커 스레드에서 `WebviewWindowBuilder::build()` → 창은 떠도 **웹뷰가 백지**. `run_on_main_thread` 안에서
+3. 존재 확인과 생성이 다른 스레드에 있으면 **설정 창이 두 개 겹쳐 뜬다**. 하나를 닫아도 뒤에 남아 "안 닫힌다"로 보이고 하나는 메시지 루프가 멈춘다 → 확인+생성을 메인 스레드 안에서 원자적으로
+4. 버튼을 상태 분기 안에 두면 조회 실패 중에 설정을 못 연다 → 헤더는 항상 렌더링
+5. 401 응답의 본문을 먼저 읽으면 `Auth` 가 아니라 재시도 대상 `Network` 로 오분류된다 → 상태코드를 먼저 판정

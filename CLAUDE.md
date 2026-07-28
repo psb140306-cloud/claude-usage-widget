@@ -4,9 +4,9 @@ Claude Code의 OAuth 인증을 재사용하여 구독 사용량(5시간 세션/�
 
 ## 프로젝트 상태
 
-- 현재 단계: **M2 완료 (2026-07-27)** — 실제 사용량이 위젯에 흐른다. 다음은 M3 트레이 반영 / M4 알림·설정 2차 / M5 히스토리
-- M1 PoC ✅ Go → `/bootstrap` ✅ → M2 코어 모듈(credentials/usage_client/poller) ✅ → 위젯 UI + 설정 창 1차 ✅
-- 위젯 표시 항목: 계정·플랜 배지 / 세션·주간·모델별 게이지(각각 리셋 안내) / 모델·effort·thinking
+- 현재 단계: **M1~M6 1차 완료 (2026-07-28)** — 인스톨러까지 생성. 상세는 [docs/next.md](docs/next.md)
+- 위젯 표시: 계정·플랜 배지 / 세션·주간·모델별 게이지(각각 리셋 안내) / 24시간 추이 차트 / 모델·effort·thinking
+- ⚠️ **메모리 KPI 미달성** — release private bytes 177.3MB (목표 150MB). 앱 자체는 7.6MB, 나머지는 WebView2. 사용자 판단 대기 (tasks.md M6)
 
 ## 핵심 문서
 
