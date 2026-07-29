@@ -5,7 +5,7 @@
 //!
 //! | 항목 | 출처 |
 //! |---|---|
-//! | 계정(이름/이메일), 플랜 | `%USERPROFILE%\.claude.json` → `oauthAccount` |
+//! | 계정(표시 이름), 플랜 | `%USERPROFILE%\.claude.json` → `oauthAccount` |
 //! | 모델 / effort / thinking | `%USERPROFILE%\.claude\projects\**\*.jsonl` 중 가장 최근 파일의 꼬리 |
 //!
 //! **개인정보 원칙**: 트랜스크립트에는 대화 내용이 들어 있다.
@@ -26,11 +26,12 @@ const TAIL_BYTES: u64 = 256 * 1024;
 /// thinking 활성 판정에 쓸 최근 assistant 메시지 수.
 const THINKING_LOOKBACK: usize = 20;
 
+/// 이메일은 UI 에서 쓰지 않으므로 **읽지도, 담지도 않는다** —
+/// WebView 로 가는 개인정보는 실제로 표시하는 것만으로 최소화한다.
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Account {
     pub display_name: Option<String>,
-    pub email: Option<String>,
     /// 원본 값 (`max`, `pro` …)
     pub plan: Option<String>,
     /// 사람이 읽는 라벨 (`Max 20x`)
@@ -67,7 +68,6 @@ impl Environment {
     /// 위젯의 계정·모델 줄을 지우지 않기 위해 쓴다.
     pub fn is_empty(&self) -> bool {
         self.account.display_name.is_none()
-            && self.account.email.is_none()
             && self.account.plan_label.is_none()
             && self.session.model.is_none()
             && self.session.effort.is_none()
@@ -86,8 +86,6 @@ struct ClaudeJson {
 struct OauthAccount {
     #[serde(rename = "displayName")]
     display_name: Option<String>,
-    #[serde(rename = "emailAddress")]
-    email_address: Option<String>,
     /// `claude_max` / `claude_pro` …
     #[serde(rename = "organizationType")]
     organization_type: Option<String>,
@@ -133,8 +131,15 @@ pub fn load() -> Environment {
     }
 }
 
+/// `.claude.json` 크기 상한. 프로젝트 이력이 쌓여 수 MB 까지는 자라지만,
+/// 그 이상은 비정상이므로 통째로 읽기 전에 끊는다 (메모리 방어).
+const MAX_CLAUDE_JSON_BYTES: u64 = 20 * 1024 * 1024;
+
 fn load_account() -> Option<Account> {
     let path = home()?.join(".claude.json");
+    if std::fs::metadata(&path).ok()?.len() > MAX_CLAUDE_JSON_BYTES {
+        return None;
+    }
     let text = std::fs::read_to_string(path).ok()?;
     // 50KB 넘는 파일이지만 필요한 키 외에는 serde 가 건너뛴다
     let parsed: ClaudeJson = serde_json::from_str(&text).ok()?;
@@ -142,7 +147,6 @@ fn load_account() -> Option<Account> {
 
     Some(Account {
         display_name: acc.display_name,
-        email: acc.email_address,
         plan: acc
             .organization_type
             .as_deref()

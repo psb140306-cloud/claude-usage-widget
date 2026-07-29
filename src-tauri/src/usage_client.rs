@@ -21,6 +21,9 @@ pub const TIMEOUT_SECS: u64 = 5;
 pub const MAX_RETRIES: u32 = 3;
 /// 첫 재시도까지의 대기. 이후 2배씩 증가한다.
 pub const BACKOFF_BASE_MS: u64 = 500;
+/// 응답 본문 크기 상한. 정상 응답은 수 KB — 이를 아득히 넘는 본문은 서버 이상이므로
+/// 통째로 버퍼링해 메모리가 부풀기 전에 끊는다.
+pub const MAX_BODY_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum UsageError {
@@ -77,12 +80,32 @@ pub async fn fetch_usage(client: &Client, token: &AccessToken) -> Result<UsageSn
     // 재시도 대상인 Network 로 잘못 분류되어, 재인증 안내 대신 헛된 재시도를 한다.
     classify_status(resp.status())?;
 
-    let body = resp
-        .text()
-        .await
-        .map_err(|e| UsageError::Network(format!("본문 읽기 실패: {e}")))?;
-
+    let body = read_body_capped(resp).await?;
     parse_body(&body)
+}
+
+/// 본문을 [`MAX_BODY_BYTES`] 까지만 읽는다.
+///
+/// `text()` 는 크기 제한 없이 전부 버퍼링하므로 쓰지 않는다. 상한 초과는
+/// 재시도해도 같을 것이므로 `Schema`(해석 불가) 로 분류한다.
+async fn read_body_capped(mut resp: reqwest::Response) -> Result<String, UsageError> {
+    if resp.content_length().is_some_and(|len| len > MAX_BODY_BYTES as u64) {
+        return Err(UsageError::Schema);
+    }
+
+    let mut buf: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| UsageError::Network(format!("본문 읽기 실패: {e}")))?
+    {
+        if buf.len() + chunk.len() > MAX_BODY_BYTES {
+            return Err(UsageError::Schema);
+        }
+        buf.extend_from_slice(&chunk);
+    }
+
+    Ok(String::from_utf8_lossy(&buf).into_owned())
 }
 
 /// 지수 백오프 재시도를 감싼 조회 (FR-2: 최대 3회).

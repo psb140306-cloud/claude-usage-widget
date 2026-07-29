@@ -212,6 +212,26 @@ fn query_weekday_stats(
     history.weekday_stats(since).map_err(|e| e.to_string())
 }
 
+/// 기간 리포트용 하루 요약. `days` 는 오늘 포함 조회 일수.
+///
+/// 하루 요약은 원본(90일)과 달리 지우지 않으므로 1년 리포트가 가능하다.
+/// 상한 366은 그 리포트 최장 기간이다.
+#[tauri::command]
+fn query_daily_report(
+    ctx: tauri::State<'_, AppCtx>,
+    days: u32,
+) -> Result<Vec<history::DailyStat>, String> {
+    let days = days.clamp(1, 366);
+    let since = (chrono::Local::now().date_naive() - chrono::Duration::days(days as i64 - 1))
+        .to_string();
+
+    let guard = ctx.history.lock().unwrap();
+    let Some(history) = guard.as_ref() else {
+        return Err("히스토리 저장소를 열 수 없었습니다".into());
+    };
+    history.daily_report(&since).map_err(|e| e.to_string())
+}
+
 /// 컴팩트 ↔ 확장 전환. 창 크기를 바꾸고 설정에 남긴다.
 #[tauri::command]
 fn set_widget_mode(
@@ -424,6 +444,7 @@ pub fn run() {
             update_settings,
             query_history,
             query_weekday_stats,
+            query_daily_report,
             set_widget_mode,
             hide_widget,
             open_settings_window,

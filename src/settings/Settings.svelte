@@ -2,6 +2,7 @@
   import { onMount } from 'svelte'
   import { disable as disableAutostart, enable as enableAutostart } from '@tauri-apps/plugin-autostart'
   import { getAppInfo, getSettings, updateSettings } from '../lib/ipc'
+  import ReportSection from './ReportSection.svelte'
   import WeekdayChart from './WeekdayChart.svelte'
   import { PRESETS, resolveTheme, withAlpha } from '../lib/state.svelte'
   import type { AppInfo, Colors, Settings, Theme } from '../lib/types'
@@ -270,6 +271,8 @@
         </span>
       </label>
     </section>
+
+    <ReportSection />
 
     <WeekdayChart days={30} />
 

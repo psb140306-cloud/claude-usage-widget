@@ -11,7 +11,8 @@ use rusqlite::{params, Connection};
 
 use crate::model::{HistoryEntry, UsageSnapshot};
 
-/// FR-7 보존 기간
+/// FR-7 보존 기간 (원본 스냅샷). 하루 요약(`daily_stats`)은 지우지 않는다 —
+/// 1년이 쌓여도 365행이라 부담이 없고, 덕분에 리포트가 원본 보존 기간을 넘어 산다.
 pub const RETENTION_DAYS: i64 = 90;
 
 pub const SCHEMA: &str = r#"
@@ -23,7 +24,30 @@ CREATE TABLE IF NOT EXISTS snapshots (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON snapshots(ts);
+
+CREATE TABLE IF NOT EXISTS daily_stats (
+    day          TEXT PRIMARY KEY,    -- 로컬 날짜 'YYYY-MM-DD'
+    peak_session REAL,
+    peak_weekly  REAL,
+    peak_opus    REAL,
+    samples      INTEGER NOT NULL
+) STRICT;
 "#;
+
+/// 하루 요약 한 줄 (기간 리포트용). `day` 는 로컬 날짜 `YYYY-MM-DD`.
+///
+/// 사용률은 한도 대비 %라 합산이 무의미하므로 "그 날 최고치"를 요약으로 쓴다
+/// (요일 패턴과 같은 논리 — [`History::weekday_stats`] 참고).
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DailyStat {
+    pub day: String,
+    pub peak_session: Option<f64>,
+    pub peak_weekly: Option<f64>,
+    pub peak_opus: Option<f64>,
+    /// 그 날 저장된 스냅샷 수 — 위젯이 꺼져 있던 날(0)과 구분한다
+    pub samples: u32,
+}
 
 /// 요일별 집계 한 줄. `weekday` 는 SQLite `strftime('%w')` 규약대로 0=일요일.
 #[derive(Debug, Clone, serde::Serialize)]
@@ -149,8 +173,60 @@ impl History {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
+    /// 원본 스냅샷을 하루 요약(`daily_stats`)으로 접는다. 몇 번을 불러도 같다.
+    ///
+    /// prune 이 하루의 앞부분만 지운 날은 원본만 다시 집계하면 요약이 **줄어든다**.
+    /// 그래서 표본 수가 기존 요약 이상일 때만 덮어쓴다 — "더 많은 표본으로 계산된
+    /// 쪽이 이긴다"는 불변식으로 부분 삭제에도 요약이 퇴화하지 않는다.
+    pub fn rollup(&self) -> Result<(), HistoryError> {
+        self.conn.execute(
+            "INSERT INTO daily_stats (day, peak_session, peak_weekly, peak_opus, samples)
+             SELECT date(ts, 'unixepoch', 'localtime'),
+                    MAX(session_pct), MAX(weekly_pct), MAX(opus_pct), COUNT(*)
+             FROM snapshots
+             GROUP BY 1
+             ON CONFLICT(day) DO UPDATE SET
+                peak_session = excluded.peak_session,
+                peak_weekly  = excluded.peak_weekly,
+                peak_opus    = excluded.peak_opus,
+                samples      = excluded.samples
+             WHERE excluded.samples >= daily_stats.samples",
+            [],
+        )?;
+        Ok(())
+    }
+
+    /// `since_day`("YYYY-MM-DD", 포함) 이후의 하루 요약, 오래된 날부터.
+    ///
+    /// 조회 전에 [`Self::rollup`] 을 돌려 오늘 몫까지 요약에 반영한다.
+    pub fn daily_report(&self, since_day: &str) -> Result<Vec<DailyStat>, HistoryError> {
+        self.rollup()?;
+
+        let mut stmt = self.conn.prepare(
+            "SELECT day, peak_session, peak_weekly, peak_opus, samples
+             FROM daily_stats
+             WHERE day >= ?1
+             ORDER BY day",
+        )?;
+
+        let rows = stmt.query_map([since_day], |row| {
+            Ok(DailyStat {
+                day: row.get(0)?,
+                peak_session: row.get(1)?,
+                peak_weekly: row.get(2)?,
+                peak_opus: row.get(3)?,
+                samples: row.get(4)?,
+            })
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
     /// 보존 기간을 넘긴 행을 지운다. 지운 행 수를 돌려준다.
+    ///
+    /// 지우기 전에 하루 요약을 먼저 남긴다 — 원본은 90일이지만 리포트는 요약으로 산다.
     pub fn prune(&self, now: DateTime<Utc>) -> Result<usize, HistoryError> {
+        self.rollup()?;
         let cutoff = now - chrono::Duration::days(RETENTION_DAYS);
         let n = self
             .conn
@@ -285,5 +361,77 @@ mod tests {
         let h = History::in_memory().unwrap();
         h.append(&snap(t(0), 1.0, 1.0)).unwrap();
         assert!(h.query(t(100), t(200)).unwrap().is_empty());
+    }
+
+    /// ts 의 로컬 날짜 문자열 — SQLite `date(ts,'unixepoch','localtime')` 과 같은 값.
+    /// 테스트를 타임존에 못 박지 않기 위해 기대값도 같은 변환으로 만든다.
+    fn local_day(at: DateTime<Utc>) -> String {
+        chrono::DateTime::<chrono::Local>::from(at).date_naive().to_string()
+    }
+
+    #[test]
+    fn rollup_folds_snapshots_into_daily_peak() {
+        let h = History::in_memory().unwrap();
+        h.append(&snap(t(0), 5.0, 1.0)).unwrap();
+        h.append(&snap(t(1), 90.0, 2.0)).unwrap();
+        h.append(&snap(t(2), 10.0, 3.0)).unwrap();
+
+        let report = h.daily_report("1970-01-01").unwrap();
+        assert_eq!(report.len(), 1, "같은 날은 한 줄로 접힌다");
+        assert_eq!(report[0].day, local_day(t(0)));
+        assert_eq!(report[0].peak_session, Some(90.0));
+        assert_eq!(report[0].peak_weekly, Some(3.0));
+        assert_eq!(report[0].samples, 3);
+    }
+
+    /// 원본이 보존 기간에서 잘려도 리포트(요약)는 살아남아야 한다.
+    #[test]
+    fn daily_report_survives_prune() {
+        let h = History::in_memory().unwrap();
+        let now = t(0);
+        let old = now - chrono::Duration::days(RETENTION_DAYS + 30);
+        h.append(&snap(old, 77.0, 5.0)).unwrap();
+        h.append(&snap(now, 20.0, 1.0)).unwrap();
+
+        h.prune(now).unwrap();
+        assert!(h.query(old, old).unwrap().is_empty(), "원본은 지워졌다");
+
+        let report = h.daily_report("1970-01-01").unwrap();
+        assert_eq!(report.len(), 2, "요약은 남는다");
+        assert_eq!(report[0].day, local_day(old));
+        assert_eq!(report[0].peak_session, Some(77.0));
+    }
+
+    /// 하루의 앞부분만 지워진 뒤의 재롤업이 요약을 퇴화시키면 안 된다.
+    #[test]
+    fn partial_delete_keeps_fuller_rollup() {
+        let h = History::in_memory().unwrap();
+        h.append(&snap(t(0), 95.0, 1.0)).unwrap();
+        h.append(&snap(t(1), 10.0, 1.0)).unwrap();
+        h.rollup().unwrap();
+
+        // 최고치가 있던 행만 지워진 상황 (prune 이 하루 중간을 자른 경우)
+        h.conn
+            .execute("DELETE FROM snapshots WHERE ts = ?1", params![t(0).timestamp()])
+            .unwrap();
+        h.rollup().unwrap();
+
+        let report = h.daily_report("1970-01-01").unwrap();
+        assert_eq!(report[0].peak_session, Some(95.0), "표본이 준 재집계는 덮어쓰지 못한다");
+        assert_eq!(report[0].samples, 2);
+    }
+
+    #[test]
+    fn daily_report_filters_by_since_day() {
+        let h = History::in_memory().unwrap();
+        let d1 = t(0);
+        let d2 = t(0) + chrono::Duration::days(3);
+        h.append(&snap(d1, 10.0, 1.0)).unwrap();
+        h.append(&snap(d2, 20.0, 2.0)).unwrap();
+
+        let report = h.daily_report(&local_day(d2)).unwrap();
+        assert_eq!(report.len(), 1, "since_day 이전은 제외");
+        assert_eq!(report[0].day, local_day(d2));
+        assert_eq!(report[0].peak_session, Some(20.0));
     }
 }

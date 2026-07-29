@@ -42,10 +42,9 @@ export type AppState =
   | { kind: 'unavailable'; reason: string }
   | { kind: 'loading' }
 
-/** 계정·플랜. `~/.claude.json` 의 oauthAccount 에서 온다. */
+/** 계정·플랜. `~/.claude.json` 의 oauthAccount 에서 온다. 이메일은 읽지 않는다. */
 export interface Account {
   displayName: string | null
-  email: string | null
   /** `max`, `pro` … */
   plan: string | null
   /** 사람이 읽는 라벨 (`Max 20x`) */
@@ -67,6 +66,17 @@ export interface Session {
 export interface Environment {
   account: Account
   session: Session
+}
+
+/** 하루 요약 (기간 리포트). day 는 로컬 날짜 'YYYY-MM-DD'. */
+export interface DailyStat {
+  day: string
+  /** 그 날 세션 사용률 최고치 (0~100) */
+  peakSession: number | null
+  peakWeekly: number | null
+  peakOpus: number | null
+  /** 그 날 저장된 스냅샷 수 — 0이면 위젯이 꺼져 있던 날 */
+  samples: number
 }
 
 /** 요일별 사용 패턴 (FR-7). weekday 는 0=일요일. */

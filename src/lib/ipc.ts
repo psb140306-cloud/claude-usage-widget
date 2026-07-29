@@ -4,6 +4,7 @@ import {
   EVENT,
   type AppInfo,
   type AppState,
+  type DailyStat,
   type Environment,
   type HistoryEntry,
   type Settings,
@@ -40,6 +41,10 @@ export const queryHistory = (from: string, to: string) =>
 /** 요일별 사용 패턴. 최근 `days` 일치를 집계한다. */
 export const queryWeekdayStats = (days = 30) =>
   invoke<WeekdayStat[]>('query_weekday_stats', { days })
+
+/** 기간 리포트용 하루 요약. days 는 오늘 포함 (1~366). */
+export const queryDailyReport = (days: number) =>
+  invoke<DailyStat[]>('query_daily_report', { days })
 
 /** 위젯 창 컴팩트↔확장 전환 (Rust 가 창 크기를 함께 조정한다). */
 export const setWidgetMode = (mode: 'compact' | 'expanded') =>
