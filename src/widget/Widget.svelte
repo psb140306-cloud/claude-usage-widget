@@ -85,7 +85,11 @@
   {:else if state.kind === 'needsReauth'}
     <p class="msg">Claude Code를 한 번 실행해<br />인증을 갱신해 주세요</p>
   {:else if state.kind === 'unavailable'}
-    <p class="msg">사용량을 가져올 수 없습니다</p>
+    <!--
+      이유를 함께 보여준다. 처음 설치한 사람에게 "가져올 수 없습니다" 만
+      띄우면 Claude Code 로그인이 필요한 건지 네트워크 문제인지 알 수 없다.
+    -->
+    <p class="msg">{state.reason || '사용량을 가져올 수 없습니다'}</p>
     <button onclick={() => refreshNow()}>다시 시도</button>
   {:else if snap}
     <!-- 컴팩트 모드에서는 게이지 2개만 남기고 리셋 안내·모델별 한도·푸터를 접는다 -->

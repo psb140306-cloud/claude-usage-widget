@@ -42,7 +42,9 @@ pub struct Credentials {
 
 #[derive(Debug, thiserror::Error)]
 pub enum CredentialsError {
-    #[error("자격증명 파일을 찾을 수 없습니다: {0}")]
+    /// 배포본에서 가장 흔한 첫 실행 실패다. 경로를 나열하기보다
+    /// 무엇을 해야 하는지 알려준다.
+    #[error("Claude Code에 로그인되어 있지 않습니다.\nClaude Code를 설치하고 한 번 실행해 주세요")]
     NotFound(PathBuf),
     #[error("자격증명 파일을 읽을 수 없습니다: {0}")]
     Io(#[from] std::io::Error),

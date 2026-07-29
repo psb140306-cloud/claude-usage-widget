@@ -2,9 +2,11 @@
 name = "claude-usage-widget"
 version = "0.1.0"
 description = "Claude Code 구독 사용량 트레이 위젯"
-authors = ["psb140306-cloud"]
+authors = ["PSH"]
 edition = "2021"
 license = "MIT"
+# 설정 창 "정보" 섹션이 이 값을 그대로 읽는다 (env!("CARGO_PKG_REPOSITORY"))
+repository = "https://github.com/psb140306-cloud/claude-usage-widget"
 
 [lib]
 # `_lib` 접미사는 Windows 에서 bin 이름과 충돌하지 않게 하려고 필요하다.

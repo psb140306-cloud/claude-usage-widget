@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { disable as disableAutostart, enable as enableAutostart } from '@tauri-apps/plugin-autostart'
-  import { getSettings, updateSettings } from '../lib/ipc'
+  import { getAppInfo, getSettings, updateSettings } from '../lib/ipc'
   import { withAlpha } from '../lib/state.svelte'
-  import type { Colors, Settings } from '../lib/types'
+  import type { AppInfo, Colors, Settings } from '../lib/types'
 
   let settings = $state<Settings | null>(null)
+  let info = $state<AppInfo | null>(null)
   let error = $state<string | null>(null)
   let saving = $state(false)
 
@@ -26,6 +27,8 @@
     try {
       settings = await getSettings()
       applyPreview()
+      // 정보 섹션은 실패해도 설정 자체를 막지 않는다
+      info = await getAppInfo().catch(() => null)
     } catch (e) {
       error = String(e)
     }
@@ -242,6 +245,23 @@
     </section>
 
     <p class="dim">{saving ? '저장 중…' : '변경은 즉시 저장·적용됩니다'}</p>
+
+    {#if info}
+      <section class="about">
+        <h2>정보</h2>
+        <p class="line"><strong>{info.name}</strong> v{info.version}</p>
+        <p class="line dim">제작 {info.authors}</p>
+        <p class="line dim">{info.license} 라이선스</p>
+        <p class="line dim">{info.repository}</p>
+        <p class="line warn">
+          사용량 조회는 Anthropic이 공개하지 않은 엔드포인트를 사용합니다.
+          예고 없이 동작하지 않을 수 있습니다.
+        </p>
+        <p class="line dim">
+          사용량 데이터는 외부로 전송되지 않습니다. 자격증명은 읽기만 합니다.
+        </p>
+      </section>
+    {/if}
   {/if}
 </main>
 
@@ -360,6 +380,31 @@
     margin: 0.35rem 0 0;
     font-size: 0.8rem;
     color: var(--text-dim);
+  }
+
+  .about {
+    margin-top: 1.6rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    /* 앱 전체는 드래그 방지를 위해 user-select:none 이지만,
+       여기 이메일·저장소 주소는 복사할 수 있어야 한다 */
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  .line {
+    margin: 0 0 0.25rem;
+    font-size: 0.78rem;
+    line-height: 1.45;
+    word-break: break-all;
+  }
+
+  .warn {
+    margin-top: 0.6rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 6px;
+    background: var(--track);
+    color: var(--c-warning);
   }
 
   .error {

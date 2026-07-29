@@ -69,6 +69,15 @@ export interface Environment {
   session: Session
 }
 
+/** 설정 창 "정보" 섹션. Cargo.toml 에서 온다. */
+export interface AppInfo {
+  name: string
+  version: string
+  authors: string
+  license: string
+  repository: string
+}
+
 /** 사용률 구간 (PRD FR-4: 정상 <60 / 주의 60~85 / 위험 >85) */
 export type Severity = 'normal' | 'warning' | 'danger'
 

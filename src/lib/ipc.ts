@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import {
   EVENT,
+  type AppInfo,
   type AppState,
   type Environment,
   type HistoryEntry,
@@ -18,6 +19,9 @@ export const getState = () => invoke<AppState>('get_state')
 
 /** 계정·플랜·현재 세션(모델/effort/thinking). */
 export const getEnvironment = () => invoke<Environment>('get_environment')
+
+/** 설정 창 "정보" 섹션용. Cargo.toml 값을 그대로 읽어온다. */
+export const getAppInfo = () => invoke<AppInfo>('get_app_info')
 
 /** 수동 새로고침. Rust 쪽에서 5초 스로틀이 걸려 있다 (PRD FR-3). */
 export const refreshNow = () => invoke<void>('refresh_now')

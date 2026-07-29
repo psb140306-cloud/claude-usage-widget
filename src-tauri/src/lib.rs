@@ -44,20 +44,29 @@ struct AppCtx {
 }
 
 /// FR-6: 평가된 알림을 Windows 토스트로 내보낸다.
+///
+/// 폴링 태스크에서 직접 부르지 않고 블로킹 풀로 넘긴다. Windows 토스트는
+/// WinRT 호출이라 상황에 따라 붙잡힐 수 있는데, 그 사이 창 생성·메시지 처리가
+/// 밀리면 설정 창이 백지로 뜨거나 닫히지 않는다.
 fn send_alerts(app: &tauri::AppHandle, alerts: &[Alert]) {
     use tauri_plugin_notification::NotificationExt;
 
-    for alert in alerts {
-        if let Err(e) = app
-            .notification()
-            .builder()
-            .title(alert.title())
-            .body(alert.body())
-            .show()
-        {
-            eprintln!("알림 발송 실패: {e}");
+    let app = app.clone();
+    let alerts = alerts.to_vec();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        for alert in alerts {
+            if let Err(e) = app
+                .notification()
+                .builder()
+                .title(alert.title())
+                .body(alert.body())
+                .show()
+            {
+                eprintln!("알림 발송 실패: {e}");
+            }
         }
-    }
+    });
 }
 
 // ─────────────────────────── 커맨드 (프론트 `src/lib/ipc.ts` 와 1:1) ───────────────────────────
@@ -77,6 +86,29 @@ fn refresh_now(ctx: tauri::State<'_, AppCtx>) -> Result<(), String> {
 #[tauri::command]
 fn get_environment(ctx: tauri::State<'_, AppCtx>) -> Environment {
     ctx.poller.environment()
+}
+
+/// 설정 창의 "정보" 섹션용. 값은 Cargo.toml 에서 온다 — 표시용으로 따로
+/// 적어 두면 버전을 올릴 때 어긋난다.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AppInfo {
+    name: &'static str,
+    version: &'static str,
+    authors: &'static str,
+    license: &'static str,
+    repository: &'static str,
+}
+
+#[tauri::command]
+fn get_app_info() -> AppInfo {
+    AppInfo {
+        name: "Claude Usage Widget",
+        version: env!("CARGO_PKG_VERSION"),
+        authors: env!("CARGO_PKG_AUTHORS"),
+        license: env!("CARGO_PKG_LICENSE"),
+        repository: env!("CARGO_PKG_REPOSITORY"),
+    }
 }
 
 #[tauri::command]
@@ -328,6 +360,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_state,
             get_environment,
+            get_app_info,
             refresh_now,
             get_settings,
             update_settings,
@@ -405,9 +438,11 @@ pub fn run() {
                 let alerts = {
                     let mut notifier = ctx.notifier.lock().unwrap();
                     notifier.configure(settings.thresholds.clone(), settings.notify_on_reset);
-                    notifier.evaluate(snapshot)
+                    notifier.evaluate(snapshot, chrono::Utc::now())
                 };
-                send_alerts(app, &alerts);
+                if !alerts.is_empty() {
+                    send_alerts(app, &alerts);
+                }
             });
 
             // 위젯은 config 에서 visible:false 로 만들어 두고, 배치한 뒤에 보여준다.

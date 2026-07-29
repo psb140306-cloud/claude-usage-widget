@@ -125,15 +125,22 @@ impl SettingsStore {
     /// 읽어온 값도 `sanitized()` 를 통과시킨다. 설정 파일은 사람이 손댈 수 있어서,
     /// 구조는 맞지만 범위를 벗어난 값(`opacity: -10` 등)이 그대로 들어올 수 있다.
     pub fn load(path: PathBuf) -> Self {
-        let current = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|t| serde_json::from_str::<Settings>(&t).ok())
-            .unwrap_or_default()
-            .sanitized();
+        let current = match std::fs::read_to_string(&path) {
+            Err(_) => Settings::default(), // 파일이 아직 없음 — 정상
+            Ok(text) => match serde_json::from_str::<Settings>(strip_bom(&text)) {
+                Ok(s) => s,
+                Err(e) => {
+                    // 조용히 기본값으로 되돌리면 사용자가 손댄 설정이
+                    // 말없이 사라진다. 최소한 흔적은 남긴다.
+                    eprintln!("설정 파일을 읽을 수 없어 기본값으로 시작합니다: {e}");
+                    Settings::default()
+                }
+            },
+        };
 
         Self {
             path,
-            current: Mutex::new(current),
+            current: Mutex::new(current.sanitized()),
         }
     }
 
@@ -206,6 +213,15 @@ impl Colors {
             chart_weekly: pick(self.chart_weekly, d.chart_weekly),
         }
     }
+}
+
+/// UTF-8 BOM 을 걷어낸다.
+///
+/// `serde_json` 은 BOM 으로 시작하는 문자열을 거부한다. 그런데 Windows 메모장과
+/// PowerShell 의 `Out-File -Encoding utf8` 은 기본으로 BOM 을 붙인다.
+/// 설정 파일은 사람이 직접 고칠 수 있어야 하므로 여기서 흡수한다.
+fn strip_bom(s: &str) -> &str {
+    s.strip_prefix('\u{feff}').unwrap_or(s)
 }
 
 /// `patch` 의 객체 키를 `base` 에 재귀적으로 덮어쓴다.
@@ -305,6 +321,28 @@ mod tests {
         assert_eq!(s.polling_interval_sec, crate::poller::MIN_INTERVAL_SECS);
         assert_eq!(s.opacity, 1.0);
         assert_eq!(s.thresholds, vec![80.0]);
+    }
+
+    /// 메모장·PowerShell 로 고친 설정 파일에는 BOM 이 붙는다.
+    /// 이걸 못 읽으면 사용자가 손댄 설정이 말없이 기본값으로 되돌아간다.
+    #[test]
+    fn load_accepts_utf8_bom() {
+        let dir = std::env::temp_dir().join("cuw-settings-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("bom.json");
+
+        let mut raw = serde_json::to_value(Settings::default()).unwrap();
+        raw["thresholds"] = json!([17.0]);
+        std::fs::write(&path, format!("\u{feff}{raw}")).unwrap();
+
+        assert_eq!(SettingsStore::load(path.clone()).get().thresholds, vec![17.0]);
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn strip_bom_leaves_plain_text_alone() {
+        assert_eq!(strip_bom("{\"a\":1}"), "{\"a\":1}");
+        assert_eq!(strip_bom("\u{feff}{\"a\":1}"), "{\"a\":1}");
     }
 
     #[test]
