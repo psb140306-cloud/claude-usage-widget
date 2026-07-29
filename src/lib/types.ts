@@ -60,6 +60,8 @@ export interface Session {
   /** `low` / `medium` / `high` / `xhigh` / `max` */
   effort: string | null
   thinking: boolean
+  /** 이 값들의 출처 프로젝트. 세션이 여러 개일 때 어느 쪽인지 알려준다 */
+  sourceProject: string | null
 }
 
 export interface Environment {
@@ -82,6 +84,9 @@ export interface Colors {
   gaugeDanger: string
   gaugeTrack: string
   background: string
+  /** 차트 선 색. 게이지 구간 색과 분리해 둔다 (주간선이 "주의"로 읽히지 않도록) */
+  chartSession: string
+  chartWeekly: string
 }
 
 /** 로컬 JSON 으로 저장되는 설정 (PRD FR-8). */

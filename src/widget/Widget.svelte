@@ -33,6 +33,14 @@
   const session = $derived(usage.env?.session)
   const modelWindow = $derived(usage.primaryModelWindow)
   const compact = $derived(usage.compact)
+
+  const sessionTitle = $derived(
+    session?.sourceProject
+      ? `${session.sourceProject} 프로젝트의 Claude Code 세션 기준입니다.\n` +
+        '세션이 여러 개면 가장 최근에 응답한 쪽이 표시됩니다.\n' +
+        '위쪽 사용률 게이지는 웹·앱을 포함한 계정 전체 기준입니다.'
+      : 'Claude Code 세션 정보',
+  )
 </script>
 
 <!-- data-tauri-drag-region: 이 영역을 잡고 끌면 창이 이동한다 -->
@@ -109,11 +117,17 @@
     {#if !compact}
       <Chart colors={usage.settings.colors} revision={snap.fetchedAt} />
 
+      <!--
+        모델·effort·thinking 은 계정 전체가 아니라 "가장 최근 활동한 Claude Code
+        세션" 하나의 값이다. 사용률 게이지(계정 전체)와 범위가 다르므로
+        출처 프로젝트를 툴팁으로 알려준다.
+      -->
       <footer>
-        <span class="session-info">
+        <span class="session-info" title={sessionTitle}>
           {#if session?.modelLabel}{session.modelLabel}{/if}
           {#if session?.effort}<span class="sep">·</span>{session.effort}{/if}
-          {#if session?.thinking}<span class="sep">·</span><span title="thinking 활성">thinking</span>{/if}
+          {#if session?.thinking}<span class="sep">·</span>thinking{/if}
+          {#if session?.sourceProject}<span class="src">@{session.sourceProject}</span>{/if}
         </span>
         {#if stale}
           <span class="badge">{relativeAge(snap.fetchedAt, usage.now)}</span>
@@ -142,7 +156,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.4rem;
-    font-size: 0.68rem;
+    font-size: 0.78rem;
     color: var(--text-dim);
   }
 
@@ -154,11 +168,13 @@
 
   .plan {
     margin-left: 0.35rem;
-    padding: 0.05rem 0.3rem;
+    padding: 0.08rem 0.35rem;
     border-radius: 999px;
     background: var(--track);
     color: var(--text);
-    font-size: 0.6rem;
+    /* 가장 작아서 안 보인다는 지적이 있던 곳. 다른 항목보다 더 올렸다 */
+    font-size: 0.72rem;
+    font-weight: 600;
   }
 
   .controls {
@@ -172,11 +188,11 @@
     /* 프레임리스 창의 창 버튼. 트레이 위젯이라 실제 최소화 대신 접기를 쓴다 */
     display: grid;
     place-items: center;
-    width: 1.05rem;
-    height: 1.05rem;
+    width: 1.2rem;
+    height: 1.2rem;
     padding: 0;
     font: inherit;
-    font-size: 0.7rem;
+    font-size: 0.8rem;
     line-height: 1;
     color: var(--text-dim);
     background: none;
@@ -198,9 +214,10 @@
     align-items: baseline;
     justify-content: space-between;
     gap: 0.4rem;
-    padding-top: 0.15rem;
+    padding-top: 0.2rem;
     border-top: 1px solid var(--border);
-    font-size: 0.62rem;
+    /* 모델·effort·thinking 줄. 여기도 안 보인다는 지적이 있어 더 올렸다 */
+    font-size: 0.72rem;
     color: var(--text-dim);
   }
 
@@ -215,9 +232,14 @@
     opacity: 0.5;
   }
 
+  .src {
+    margin-left: 0.3rem;
+    opacity: 0.6;
+  }
+
   .msg {
     margin: 0;
-    font-size: 0.72rem;
+    font-size: 0.8rem;
     line-height: 1.35;
     color: var(--text-dim);
     text-align: center;
@@ -232,9 +254,9 @@
 
   button:not(.ctl) {
     align-self: center;
-    padding: 0.2rem 0.6rem;
+    padding: 0.25rem 0.7rem;
     font: inherit;
-    font-size: 0.68rem;
+    font-size: 0.78rem;
     color: var(--text);
     background: var(--surface);
     border: 1px solid var(--border);

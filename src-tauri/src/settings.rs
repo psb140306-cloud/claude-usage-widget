@@ -43,6 +43,13 @@ pub struct Colors {
     /// 게이지 빈 부분
     pub gauge_track: String,
     pub background: String,
+    /// 차트 선 색.
+    ///
+    /// 게이지의 구간 색(정상/주의/위험)과 **분리해서** 둔다. 재사용하면
+    /// 주간 추이선이 황토색으로 그려져 "주의 상태"처럼 읽힌다 —
+    /// 실제로는 그냥 다른 계열일 뿐인데도.
+    pub chart_session: String,
+    pub chart_weekly: String,
 }
 
 impl Default for Colors {
@@ -55,6 +62,8 @@ impl Default for Colors {
             gauge_danger: "#f85149".into(),
             gauge_track: "#3a3a3a".into(),
             background: "#202020".into(),
+            chart_session: "#3fb950".into(),
+            chart_weekly: "#58a6ff".into(),
         }
     }
 }
@@ -193,6 +202,8 @@ impl Colors {
             gauge_danger: pick(self.gauge_danger, d.gauge_danger),
             gauge_track: pick(self.gauge_track, d.gauge_track),
             background: pick(self.background, d.background),
+            chart_session: pick(self.chart_session, d.chart_session),
+            chart_weekly: pick(self.chart_weekly, d.chart_weekly),
         }
     }
 }

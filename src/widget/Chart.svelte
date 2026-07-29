@@ -46,22 +46,22 @@
           stroke: colors.textDim,
           grid: { show: false },
           ticks: { show: false },
-          size: 18,
-          font: '9px system-ui',
+          size: 22,
+          font: '11px system-ui',
         },
         {
           stroke: colors.textDim,
           grid: { stroke: colors.gaugeTrack, width: 1 },
           ticks: { show: false },
-          size: 26,
-          font: '9px system-ui',
+          size: 32,
+          font: '11px system-ui',
           values: (_u, splits) => splits.map((v) => `${v}%`),
         },
       ],
       series: [
         {},
-        { label: '세션', stroke: colors.gaugeNormal, width: 1.5, points: { show: false } },
-        { label: '주간', stroke: colors.gaugeWarning, width: 1.5, points: { show: false } },
+        { label: '세션', stroke: colors.chartSession, width: 1.5, points: { show: false } },
+        { label: '주간', stroke: colors.chartWeekly, width: 1.5, points: { show: false } },
       ],
     }
   }
@@ -102,6 +102,18 @@
   })
 </script>
 
+<!--
+  uPlot 기본 범례는 커서를 따라다니는 대화형이라 이 크기엔 맞지 않는다.
+  어느 선이 무엇인지만 알면 되므로 정적인 범례를 직접 그린다.
+-->
+{#if !failed && !empty}
+  <div class="legend">
+    <span class="key">최근 {hours}시간</span>
+    <span class="item"><i style:background={colors.chartSession}></i>세션</span>
+    <span class="item"><i style:background={colors.chartWeekly}></i>주간</span>
+  </div>
+{/if}
+
 <div class="chart" bind:this={host}>
   {#if failed}
     <p class="note">차트를 불러올 수 없습니다</p>
@@ -111,6 +123,30 @@
 </div>
 
 <style>
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 0.68rem;
+    color: var(--text-dim);
+  }
+
+  .key {
+    margin-right: auto;
+  }
+
+  .item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .item i {
+    width: 0.7rem;
+    height: 2px;
+    border-radius: 1px;
+  }
+
   .chart {
     width: 100%;
     min-height: 72px;
@@ -119,7 +155,7 @@
   .note {
     margin: 0;
     padding: 1.5rem 0;
-    font-size: 0.62rem;
+    font-size: 0.72rem;
     color: var(--text-dim);
     text-align: center;
   }

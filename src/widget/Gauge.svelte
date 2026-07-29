@@ -65,20 +65,22 @@
     align-items: baseline;
   }
 
+  /* 글자 크기는 2026-07-29 에 전체적으로 1pt(≈0.08rem) 올렸다.
+     기존 크기는 실사용에서 읽기 어렵다는 피드백이 있었다. */
   .label {
-    font-size: 0.72rem;
+    font-size: 0.8rem;
     color: var(--text);
   }
 
   .dot {
     margin-left: 0.25rem;
-    font-size: 0.5rem;
+    font-size: 0.55rem;
     color: var(--c-normal);
     vertical-align: middle;
   }
 
   .value {
-    font-size: 0.72rem;
+    font-size: 0.8rem;
     font-variant-numeric: tabular-nums;
     color: var(--text);
   }
@@ -106,7 +108,7 @@
   }
 
   .reset {
-    font-size: 0.62rem;
+    font-size: 0.7rem;
     color: var(--text-dim);
     font-variant-numeric: tabular-nums;
   }

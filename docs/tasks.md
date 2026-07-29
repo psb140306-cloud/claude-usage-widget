@@ -109,7 +109,10 @@
 - [x] Tauri 번들러로 NSIS 인스톨러 생성 — `Claude Usage Widget_0.1.0_x64-setup.exe` **2.83MB**
   - 릴리스 exe 7.0MB (debug 16.6MB 대비 58% 감소)
   - Vite 없이 독립 실행 확인 (임베드 dist)
-- [ ] 설치/제거 테스트 — **사용자 확인 필요** (시스템에 실제 설치가 필요)
+- [x] 설치 테스트 — `/S` 무인 설치 성공 (종료 코드 0)
+  - 위치: `%LOCALAPPDATA%\Claude Usage Widget` (관리자 권한 불필요)
+  - 제거 항목 등록 ✅ / 시작 메뉴 바로가기 ✅ / 설치본 실행 및 전체 렌더링 확인 ✅
+- [ ] 제거 테스트
 - [x] 메모리 실측 (release + private bytes) — ⚠️ **177.3MB, 목표 150MB 미달성** (아래 참조)
 - [x] 유휴 CPU — 15초간 0ms ✅
 - [ ] 24시간 상주 테스트

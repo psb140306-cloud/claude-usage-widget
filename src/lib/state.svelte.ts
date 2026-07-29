@@ -21,6 +21,8 @@ const FALLBACK_SETTINGS: Settings = {
     gaugeDanger: '#f85149',
     gaugeTrack: '#3a3a3a',
     background: '#202020',
+    chartSession: '#3fb950',
+    chartWeekly: '#58a6ff',
   },
 }
 

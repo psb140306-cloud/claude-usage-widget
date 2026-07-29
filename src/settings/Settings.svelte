@@ -18,6 +18,8 @@
     { key: 'gaugeDanger', label: '게이지 · 위험', hint: '85% 초과' },
     { key: 'gaugeTrack', label: '게이지 배경', hint: '막대의 빈 부분' },
     { key: 'background', label: '위젯 배경', hint: '아래 불투명도와 함께 적용' },
+    { key: 'chartSession', label: '차트 · 세션', hint: '24시간 추이의 세션 선' },
+    { key: 'chartWeekly', label: '차트 · 주간', hint: '24시간 추이의 주간 선' },
   ]
 
   onMount(async () => {
@@ -247,18 +249,19 @@
   main {
     padding: 1.1rem 1.25rem 1.5rem;
     color: var(--text);
-    font-size: 0.85rem;
+    /* 위젯과 함께 2026-07-29 에 전체적으로 1pt 올렸다 */
+    font-size: 0.93rem;
   }
 
   h1 {
     margin: 0 0 1rem;
-    font-size: 1.05rem;
+    font-size: 1.15rem;
     font-weight: 600;
   }
 
   h2 {
     margin: 0 0 0.5rem;
-    font-size: 0.75rem;
+    font-size: 0.83rem;
     font-weight: 600;
     color: var(--text-dim);
     text-transform: uppercase;
@@ -295,11 +298,11 @@
   }
 
   .label {
-    font-size: 0.8rem;
+    font-size: 0.88rem;
   }
 
   .hint {
-    font-size: 0.68rem;
+    font-size: 0.76rem;
     color: var(--text-dim);
   }
 
@@ -346,8 +349,8 @@
 
   code {
     flex: none;
-    min-width: 4.2rem;
-    font-size: 0.68rem;
+    min-width: 4.6rem;
+    font-size: 0.76rem;
     color: var(--text-dim);
     text-align: right;
     font-variant-numeric: tabular-nums;
@@ -355,7 +358,7 @@
 
   .dim {
     margin: 0.35rem 0 0;
-    font-size: 0.72rem;
+    font-size: 0.8rem;
     color: var(--text-dim);
   }
 

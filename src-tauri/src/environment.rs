@@ -48,6 +48,11 @@ pub struct Session {
     pub effort: Option<String>,
     /// 최근 응답에 thinking 블록이 있었는지
     pub thinking: bool,
+    /// 이 값들이 어느 프로젝트에서 왔는지.
+    ///
+    /// Claude Code 세션이 여러 개면 "가장 최근에 쓴" 세션이 이긴다.
+    /// 어느 쪽 값인지 모르면 오해하기 쉬우므로 출처를 함께 노출한다.
+    pub source_project: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -152,7 +157,25 @@ fn load_account() -> Option<Account> {
 fn load_session() -> Option<Session> {
     let path = latest_transcript()?;
     let text = read_tail(&path, TAIL_BYTES)?;
-    Some(parse_session(&text))
+
+    let mut session = parse_session(&text);
+    session.source_project = project_label(&path);
+    Some(session)
+}
+
+/// 트랜스크립트 경로 → 사람이 읽는 프로젝트 이름.
+///
+/// Claude Code 는 프로젝트 경로를 `e--startcoding-124-Claude-Usage-Widget` 처럼
+/// 납작하게 만들어 폴더명으로 쓴다. 마지막 의미 있는 조각만 보여준다.
+fn project_label(transcript: &Path) -> Option<String> {
+    let dir = transcript.parent()?.file_name()?.to_str()?;
+
+    // 드라이브 접두사(`e--`)와 경로 구분(`-`)을 걷어내고 마지막 조각을 쓴다
+    let last = dir.rsplit("--").next().unwrap_or(dir);
+    let last = last.rsplit('-').next().unwrap_or(last);
+
+    let cleaned = if last.trim().is_empty() { dir } else { last };
+    Some(cleaned.to_string())
 }
 
 /// 트랜스크립트를 찾을 때 내려갈 최대 깊이.
@@ -385,6 +408,18 @@ mod tests {
             r#"{"type":"assistant","message":{"model":"claude-sonnet-5","content":[]}}"#,
         );
         assert_eq!(parse_session(tail).model_label.as_deref(), Some("Sonnet 5"));
+    }
+
+    #[test]
+    fn project_label_uses_last_path_segment() {
+        let p = PathBuf::from(r"C:\x\.claude\projects\e--startcoding-124-Claude-Usage-Widget\s.jsonl");
+        assert_eq!(project_label(&p).as_deref(), Some("Widget"));
+    }
+
+    #[test]
+    fn project_label_falls_back_to_folder_name() {
+        let p = PathBuf::from(r"C:\x\.claude\projects\myproject\s.jsonl");
+        assert_eq!(project_label(&p).as_deref(), Some("myproject"));
     }
 
     #[test]
