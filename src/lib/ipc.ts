@@ -7,6 +7,7 @@ import {
   type Environment,
   type HistoryEntry,
   type Settings,
+  type WeekdayStat,
 } from './types'
 
 /**
@@ -35,6 +36,10 @@ export const updateSettings = (patch: Record<string, unknown>) =>
 /** 히스토리 조회. from/to 는 ISO 8601. */
 export const queryHistory = (from: string, to: string) =>
   invoke<HistoryEntry[]>('query_history', { from, to })
+
+/** 요일별 사용 패턴. 최근 `days` 일치를 집계한다. */
+export const queryWeekdayStats = (days = 30) =>
+  invoke<WeekdayStat[]>('query_weekday_stats', { days })
 
 /** 위젯 창 컴팩트↔확장 전환 (Rust 가 창 크기를 함께 조정한다). */
 export const setWidgetMode = (mode: 'compact' | 'expanded') =>

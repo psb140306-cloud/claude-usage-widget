@@ -6,7 +6,7 @@
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 
 use crate::model::{severity_of, AppState, Severity};
 use crate::settings::Colors;

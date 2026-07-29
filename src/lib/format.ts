@@ -79,6 +79,20 @@ export function absoluteTime(resetsAt: string | null | undefined): string {
   })
 }
 
+/**
+ * 게이지를 흑백으로 죽일 만큼 오래된 값인지.
+ *
+ * 폴링이 한 번 실패했다고 바로 흑백이 되면, 1분밖에 안 지난 값에도
+ * 화면이 죽어 보인다. 뱃지는 첫 실패부터 띄우되 색은 이만큼 지나야 뺀다.
+ */
+export const STALE_MUTE_MINUTES = 5
+
+export function isStaleEnoughToMute(fetchedAt: string, now: Date = new Date()): boolean {
+  const t = new Date(fetchedAt).getTime()
+  if (Number.isNaN(t)) return false
+  return now.getTime() - t >= STALE_MUTE_MINUTES * 60_000
+}
+
 /** 스테일 뱃지용 "N분 전 기준". */
 export function relativeAge(fetchedAt: string, now: Date = new Date()): string {
   const t = new Date(fetchedAt).getTime()

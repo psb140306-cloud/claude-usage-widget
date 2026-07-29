@@ -40,6 +40,12 @@ const WAKE_CHECK: Duration = Duration::from_secs(5);
 /// (정상이라면 `WAKE_CHECK` 근처여야 한다)
 const RESUME_GAP_SECS: i64 = 15;
 
+/// 429 를 받으면 다음 조회를 이만큼 미룬다.
+///
+/// 제한이 걸린 상태에서 계속 같은 주기로 두드리면 풀릴 틈이 없다.
+/// 그동안 위젯은 마지막 값을 스테일로 계속 보여준다.
+const RATE_LIMIT_BACKOFF_SECS: i64 = 300;
+
 pub struct Poller {
     client: Client,
     state: Mutex<AppState>,
@@ -53,6 +59,8 @@ pub struct Poller {
     last_manual: Mutex<Option<Instant>>,
     /// 폴링 주기. M4 설정에서 런타임 변경할 수 있도록 원자값으로 둔다.
     interval_secs: AtomicU64,
+    /// 429 를 받았을 때 다음 조회를 미룰 시각
+    penalty_until: Mutex<Option<DateTime<Utc>>>,
     /// 상태 변경 관찰자 (트레이 아이콘·툴팁 갱신).
     /// `Arc` 로 들고 있어 호출할 때 잠금을 잡은 채 실행하지 않는다.
     #[allow(clippy::type_complexity)]
@@ -72,6 +80,7 @@ impl Poller {
             refresh: Notify::new(),
             last_manual: Mutex::new(None),
             interval_secs: AtomicU64::new(DEFAULT_INTERVAL_SECS),
+            penalty_until: Mutex::new(None),
             observer: Mutex::new(None),
         }
     }
@@ -154,6 +163,12 @@ impl Poller {
                     last_check = now;
 
                     if should_poll(elapsed, gap, interval) {
+                        // 429 벌칙이 남아 있으면 더 기다린다. 수동 새로고침은
+                        // 사용자가 의도한 것이므로 이 제한을 받지 않는다.
+                        let penalty = *self.penalty_until.lock().unwrap();
+                        if matches!(penalty, Some(until) if now < until) {
+                            continue;
+                        }
                         return;
                     }
                 }
@@ -198,10 +213,17 @@ impl Poller {
 
         match usage_client::fetch_with_retry(&self.client, &creds.token).await {
             Ok(snapshot) => {
+                *self.penalty_until.lock().unwrap() = None;
                 *self.last_snapshot.lock().unwrap() = Some(snapshot.clone());
                 self.publish(app, AppState::Ok { snapshot });
             }
             Err(UsageError::Auth) => self.publish(app, AppState::NeedsReauth),
+            // 제한이 걸렸으면 물러난다. 같은 주기로 계속 두드리면 풀리지 않는다.
+            Err(e @ UsageError::RateLimited) => {
+                *self.penalty_until.lock().unwrap() =
+                    Some(Utc::now() + chrono::Duration::seconds(RATE_LIMIT_BACKOFF_SECS));
+                self.degrade(app, e.to_string(), true);
+            }
             // 스키마 불일치는 API 가 바뀌었다는 뜻이라 값이 영영 갱신되지 않는다.
             // 마지막 값을 스테일로 계속 보여주면 고장을 숨기게 되므로 조회 불가로 간다
             // (PRD FR-2 "필수 필드 누락 시 조회 불가", api-schema.md §5).

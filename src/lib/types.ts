@@ -69,6 +69,16 @@ export interface Environment {
   session: Session
 }
 
+/** 요일별 사용 패턴 (FR-7). weekday 는 0=일요일. */
+export interface WeekdayStat {
+  weekday: number
+  /** 그 요일 "하루 최고 세션 사용률"의 평균 */
+  avgPeakSession: number | null
+  avgPeakWeekly: number | null
+  /** 집계에 들어간 날 수 */
+  days: number
+}
+
 /** 설정 창 "정보" 섹션. Cargo.toml 에서 온다. */
 export interface AppInfo {
   name: string

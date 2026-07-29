@@ -25,6 +25,18 @@ CREATE TABLE IF NOT EXISTS snapshots (
 CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON snapshots(ts);
 "#;
 
+/// 요일별 집계 한 줄. `weekday` 는 SQLite `strftime('%w')` 규약대로 0=일요일.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeekdayStat {
+    pub weekday: u8,
+    /// 그 요일 "하루 최고 세션 사용률"의 평균
+    pub avg_peak_session: Option<f64>,
+    pub avg_peak_weekly: Option<f64>,
+    /// 집계에 들어간 날 수 — 표본이 적으면 UI 에서 알려줘야 한다
+    pub days: u32,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum HistoryError {
     #[error("히스토리 DB 오류: {0}")]
@@ -95,6 +107,42 @@ impl History {
                 session_pct: row.get(1)?,
                 weekly_pct: row.get(2)?,
                 opus_pct: row.get(3)?,
+            })
+        })?;
+
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    /// 요일별 사용 패턴 (FR-7).
+    ///
+    /// 각 요일의 **최고 세션 사용률 평균**을 낸다. 단순 평균을 쓰면 새벽처럼
+    /// 안 쓰는 시간대가 값을 눌러 요일 간 차이가 뭉개진다. "그 날 얼마나
+    /// 많이 썼나"를 보려면 하루 최고치를 쓰는 편이 맞다.
+    ///
+    /// 시각은 **로컬 시간** 기준으로 요일을 가른다 — 사용자가 체감하는 요일이어야 한다.
+    pub fn weekday_stats(&self, since: DateTime<Utc>) -> Result<Vec<WeekdayStat>, HistoryError> {
+        let mut stmt = self.conn.prepare(
+            "WITH daily AS (
+                 SELECT date(ts, 'unixepoch', 'localtime')            AS day,
+                        CAST(strftime('%w', ts, 'unixepoch', 'localtime') AS INTEGER) AS weekday,
+                        MAX(session_pct) AS peak_session,
+                        MAX(weekly_pct)  AS peak_weekly
+                 FROM snapshots
+                 WHERE ts >= ?1
+                 GROUP BY day
+             )
+             SELECT weekday, AVG(peak_session), AVG(peak_weekly), COUNT(*)
+             FROM daily
+             GROUP BY weekday
+             ORDER BY weekday",
+        )?;
+
+        let rows = stmt.query_map([since.timestamp()], |row| {
+            Ok(WeekdayStat {
+                weekday: row.get(0)?,
+                avg_peak_session: row.get(1)?,
+                avg_peak_weekly: row.get(2)?,
+                days: row.get(3)?,
             })
         })?;
 
@@ -193,6 +241,43 @@ mod tests {
         assert_eq!(h.prune(now).unwrap(), 1);
         assert_eq!(h.count(), 1);
         assert_eq!(h.query(fresh, now).unwrap()[0].session_pct, Some(2.0));
+    }
+
+    #[test]
+    fn weekday_stats_uses_daily_peak_not_raw_average() {
+        let h = History::in_memory().unwrap();
+        // 같은 날에 낮은 값 여러 개 + 높은 값 하나.
+        // 단순 평균이면 낮은 값들에 눌리고, 하루 최고치를 쓰면 90 이 나온다.
+        let day = Utc.timestamp_opt(1_785_000_000, 0).unwrap();
+        for i in 0..5 {
+            h.append(&snap(day + chrono::Duration::minutes(i), 5.0, 1.0)).unwrap();
+        }
+        h.append(&snap(day + chrono::Duration::minutes(10), 90.0, 2.0)).unwrap();
+
+        let stats = h.weekday_stats(day - chrono::Duration::days(1)).unwrap();
+        assert_eq!(stats.len(), 1, "하루치이므로 요일 하나");
+        assert_eq!(stats[0].avg_peak_session, Some(90.0));
+        assert_eq!(stats[0].days, 1);
+    }
+
+    #[test]
+    fn weekday_stats_averages_across_days() {
+        let h = History::in_memory().unwrap();
+        let day = Utc.timestamp_opt(1_785_000_000, 0).unwrap();
+        // 정확히 7일 간격 = 같은 요일. 최고치 20 과 40 → 평균 30
+        h.append(&snap(day, 20.0, 0.0)).unwrap();
+        h.append(&snap(day + chrono::Duration::days(7), 40.0, 0.0)).unwrap();
+
+        let stats = h.weekday_stats(day - chrono::Duration::days(1)).unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0].avg_peak_session, Some(30.0));
+        assert_eq!(stats[0].days, 2);
+    }
+
+    #[test]
+    fn weekday_stats_empty_when_no_data() {
+        let h = History::in_memory().unwrap();
+        assert!(h.weekday_stats(Utc::now()).unwrap().is_empty());
     }
 
     #[test]

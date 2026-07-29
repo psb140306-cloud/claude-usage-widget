@@ -1,6 +1,44 @@
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import { getEnvironment, getSettings, getState, onEnvironment, onSettings, onState } from './ipc'
-import type { AppState, Environment, Settings, UsageSnapshot } from './types'
+import type { AppState, Colors, Environment, Settings, Theme, UsageSnapshot } from './types'
+
+/**
+ * 테마별 색 프리셋.
+ *
+ * 색은 전부 설정값이 CSS 변수를 덮어쓰므로, `data-theme` 속성만 바꿔서는
+ * 아무것도 달라지지 않는다. 그래서 테마는 **색 묶음을 갈아끼우는** 방식으로 둔다.
+ * 개별 색을 손본 뒤 테마를 바꾸면 그 테마의 기본색으로 돌아간다 — 설정 UI 에 명시한다.
+ */
+export const PRESETS: Record<'light' | 'dark', Colors> = {
+  dark: {
+    text: '#f3f3f3',
+    textDim: '#8b8b8b',
+    gaugeNormal: '#3fb950',
+    gaugeWarning: '#d29922',
+    gaugeDanger: '#f85149',
+    gaugeTrack: '#3a3a3a',
+    background: '#202020',
+    chartSession: '#3fb950',
+    chartWeekly: '#58a6ff',
+  },
+  light: {
+    text: '#1a1a1a',
+    textDim: '#5c5c5c',
+    gaugeNormal: '#1a7f37',
+    gaugeWarning: '#9a6700',
+    gaugeDanger: '#cf222e',
+    gaugeTrack: '#d0d7de',
+    background: '#f9f9f9',
+    chartSession: '#1a7f37',
+    chartWeekly: '#0969da',
+  },
+}
+
+/** `system` 이면 OS 설정을 따라 실제 테마를 정한다. */
+export function resolveTheme(theme: Theme): 'light' | 'dark' {
+  if (theme !== 'system') return theme
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+}
 
 /** 백엔드 응답 전 첫 프레임용. Rust 의 `Settings::default()` 와 같은 값. */
 const FALLBACK_SETTINGS: Settings = {
@@ -81,8 +119,10 @@ class UsageStore {
 
   /** 설정 색상을 CSS 변수로 문서에 반영한다. */
   applyTheme() {
-    const { colors, opacity } = this.settings
+    const { colors, opacity, theme } = this.settings
     const root = document.documentElement
+    // 설정에서 덮지 않는 부분(스크롤바·폼 컨트롤 등)이 OS 다크모드를 따라가도록
+    root.dataset.theme = resolveTheme(theme)
     root.style.setProperty('--text', colors.text)
     root.style.setProperty('--text-dim', colors.textDim)
     root.style.setProperty('--c-normal', colors.gaugeNormal)

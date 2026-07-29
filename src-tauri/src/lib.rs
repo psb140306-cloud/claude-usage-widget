@@ -41,6 +41,34 @@ struct AppCtx {
     notifier: std::sync::Mutex<Notifier>,
     /// 히스토리는 열지 못해도 앱은 떠야 하므로 Option 이다 (FR-7 은 권장 기능)
     history: std::sync::Mutex<Option<History>>,
+    /// 위젯 위치를 마지막으로 저장한 시각 — 드래그 중 파일을 매번 쓰지 않기 위함
+    position_saved_at: std::sync::Mutex<Option<std::time::Instant>>,
+}
+
+/// 위치를 다시 저장하기까지 두는 최소 간격.
+/// 드래그 한 번에 `Moved` 가 수십 번 오므로 그때마다 쓰면 디스크를 두드린다.
+const POSITION_SAVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+impl AppCtx {
+    /// 위젯이 움직였을 때 호출. 간격이 지났을 때만 실제로 저장한다.
+    fn remember_position(&self, x: i32, y: i32) {
+        {
+            let mut last = self.position_saved_at.lock().unwrap();
+            let now = std::time::Instant::now();
+            if matches!(*last, Some(t) if now.duration_since(t) < POSITION_SAVE_INTERVAL) {
+                return;
+            }
+            *last = Some(now);
+        }
+
+        // 위치는 조용히 저장한다 — 이벤트를 쏘면 창이 자기 위치 변경에 반응하게 된다
+        if let Err(e) = self
+            .settings
+            .update(serde_json::json!({ "widgetPosition": { "x": x, "y": y } }))
+        {
+            eprintln!("위젯 위치 저장 실패: {e}");
+        }
+    }
 }
 
 /// FR-6: 평가된 알림을 Windows 토스트로 내보낸다.
@@ -169,6 +197,21 @@ fn query_history(
     history.query(from, to).map_err(|e| e.to_string())
 }
 
+/// 요일별 사용 패턴 (FR-7). `days` 일치를 대상으로 집계한다.
+#[tauri::command]
+fn query_weekday_stats(
+    ctx: tauri::State<'_, AppCtx>,
+    days: i64,
+) -> Result<Vec<history::WeekdayStat>, String> {
+    let since = chrono::Utc::now() - chrono::Duration::days(days.clamp(1, history::RETENTION_DAYS));
+
+    let guard = ctx.history.lock().unwrap();
+    let Some(history) = guard.as_ref() else {
+        return Err("히스토리 저장소를 열 수 없었습니다".into());
+    };
+    history.weekday_stats(since).map_err(|e| e.to_string())
+}
+
 /// 컴팩트 ↔ 확장 전환. 창 크기를 바꾸고 설정에 남긴다.
 #[tauri::command]
 fn set_widget_mode(
@@ -225,25 +268,26 @@ fn hide_widget(app: tauri::AppHandle) -> Result<(), String> {
 /// ⚠️ WorkingSet 은 WebView2 프로세스 간 공유 페이지를 중복 계산하므로
 /// PRD 의 150MB 목표와 직접 비교할 수 없다. 실제 검증은 M6 에서
 /// release 빌드 + private bytes 기준으로 한다.
-#[tauri::command]
-fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
-    // 존재 확인과 생성을 **둘 다 메인 스레드 안에서** 한다.
-    //
-    // 밖에서 확인하고 안에서 만들면 그 사이에 두 번째 요청이 끼어들 수 있다.
-    // 둘 다 "없음"으로 판단해 창이 두 개 겹쳐 뜨고, 하나를 닫아도 똑같은 창이
-    // 뒤에 남아 "안 닫힌다"로 보인다. (실제로 발생)
-    //
-    // 메인 스레드에서 만들어야 하는 이유는 별개다 — 워커 스레드에서 build() 를
-    // 부르면 Windows 에서 창은 떠도 웹뷰가 백지가 된다.
+/// 설정 창을 연다. 이미 있으면 앞으로 가져온다.
+///
+/// **메인 스레드를 막지 않는 것이 핵심이다.** 이 자리에서 세 번 헤맸다:
+///
+/// 1. 워커 스레드에서 `build()` 를 직접 호출 → 창은 떠도 웹뷰가 백지
+/// 2. 존재 확인과 생성이 다른 스레드에 있어 창이 두 개 겹쳐 뜸
+/// 3. 결과를 채널로 받으려고 `recv_timeout` 으로 대기 → **동기 커맨드는 메인
+///    스레드에서 실행되므로 메인을 막아버린다.** 그러면 이벤트 루프가 큐에 넣은
+///    창 생성을 처리하지 못하고 새 웹뷰가 초기화를 못 끝내 다시 백지가 된다
+///
+/// 그래서 지금은 확인+생성을 메인 스레드 클로저 안에서 **한 번에** 하고,
+/// 결과는 기다리지 않고 로그로 남긴다.
+fn spawn_settings_window(app: &tauri::AppHandle) -> Result<(), String> {
     let handle = app.clone();
-    let (tx, rx) = std::sync::mpsc::channel();
 
     app.run_on_main_thread(move || {
         if let Some(win) = handle.get_webview_window(SETTINGS_WINDOW) {
             let _ = win.unminimize();
             let _ = win.show();
             let _ = win.set_focus();
-            let _ = tx.send(None);
             return;
         }
 
@@ -260,20 +304,34 @@ fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
         .build();
 
         // 실패를 조용히 삼키지 않는다 — 버튼이 먹통인 것처럼 보이는 원인이 된다
-        let _ = tx.send(result.err().map(|e| e.to_string()));
+        if let Err(e) = result {
+            eprintln!("설정 창 생성 실패: {e}");
+        }
     })
-    .map_err(|e| format!("설정 창을 열 수 없습니다: {e}"))?;
+    .map_err(|e| format!("설정 창을 열 수 없습니다: {e}"))
+}
 
-    // 생성 결과를 호출자에게 되돌려 준다. 그러지 않으면 창이 안 떠도
-    // 프론트의 promise 는 성공으로 resolve 되어 catch 가 걸리지 않는다.
-    match rx.recv_timeout(std::time::Duration::from_secs(5)) {
-        Ok(None) => Ok(()),
-        Ok(Some(e)) => Err(format!("설정 창 생성 실패: {e}")),
-        Err(_) => Err("설정 창 생성이 응답하지 않습니다".into()),
-    }
+/// `async` 로 두어 커맨드 본문이 **메인 스레드가 아닌 곳**에서 실행되게 한다.
+/// 동기 커맨드였다면 아래 `run_on_main_thread` 가 메인에서 메인으로 넘기는 꼴이 된다.
+#[tauri::command]
+async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    spawn_settings_window(&app)
 }
 
 // ─────────────────────────── 창 배치 ───────────────────────────
+
+/// 저장된 위치가 지금 화면 배치에서 여전히 쓸 만한지.
+///
+/// 모니터를 뽑거나 해상도를 바꾸면 예전 좌표가 화면 밖이 된다. 그대로 복원하면
+/// 위젯이 보이지 않는 곳에 뜨고 사용자는 사라졌다고 생각한다.
+/// 창의 좌상단이 어느 모니터 안에 있으면 쓸 만하다고 본다.
+fn position_is_visible(monitors: &[tauri::window::Monitor], x: i32, y: i32) -> bool {
+    monitors.iter().any(|m| {
+        let p = m.position();
+        let s = m.size();
+        x >= p.x && y >= p.y && x < p.x + s.width as i32 && y < p.y + s.height as i32
+    })
+}
 
 /// 크기가 바뀌어도 **아래 모서리**가 제자리에 있도록 새 y 좌표를 구한다.
 ///
@@ -325,7 +383,7 @@ fn on_tray_menu(app: &tauri::AppHandle, id: &str) {
             }
         }
         tray::ITEM_SETTINGS => {
-            if let Err(e) = open_settings_window(app.clone()) {
+            if let Err(e) = spawn_settings_window(app) {
                 eprintln!("{e}");
             }
         }
@@ -365,6 +423,7 @@ pub fn run() {
             get_settings,
             update_settings,
             query_history,
+            query_weekday_stats,
             set_widget_mode,
             hide_widget,
             open_settings_window,
@@ -408,6 +467,7 @@ pub fn run() {
                     saved.notify_on_reset,
                 )),
                 history: std::sync::Mutex::new(history),
+                position_saved_at: std::sync::Mutex::new(None),
                 settings,
             });
 
@@ -455,9 +515,24 @@ pub fn run() {
                         WIDGET_SIZE_COMPACT.1,
                     ));
                 }
-                if let Err(e) = place_bottom_right(&widget) {
-                    // 배치 실패가 창을 못 띄우는 사유가 되면 안 된다
-                    eprintln!("위젯 기본 위치 설정 실패(기본 배치로 진행): {e}");
+                // 저장된 위치가 있고 지금 화면에서 보이는 자리면 복원하고,
+                // 아니면 기본 배치(우측 하단)로 간다.
+                let restored = saved.widget_position.and_then(|p| {
+                    let monitors = widget.available_monitors().ok()?;
+                    if !position_is_visible(&monitors, p.x, p.y) {
+                        eprintln!("저장된 위젯 위치가 화면 밖이라 기본 배치로 진행합니다");
+                        return None;
+                    }
+                    widget
+                        .set_position(tauri::PhysicalPosition::new(p.x, p.y))
+                        .ok()
+                });
+
+                if restored.is_none() {
+                    if let Err(e) = place_bottom_right(&widget) {
+                        // 배치 실패가 창을 못 띄우는 사유가 되면 안 된다
+                        eprintln!("위젯 기본 위치 설정 실패(기본 배치로 진행): {e}");
+                    }
                 }
                 widget.show()?;
             }
@@ -475,9 +550,19 @@ pub fn run() {
             if window.label() != WIDGET_WINDOW {
                 return;
             }
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                // 드래그로 옮긴 자리를 기억한다. Moved 는 드래그 중 계속 오므로
+                // 매번 파일에 쓰지 않고, 마지막 좌표만 들고 있다가 간격을 두고 저장한다.
+                WindowEvent::Moved(pos) => {
+                    if let Some(ctx) = window.app_handle().try_state::<AppCtx>() {
+                        ctx.remember_position(pos.x, pos.y);
+                    }
+                }
+                _ => {}
             }
         })
         .run(tauri::generate_context!())

@@ -2,8 +2,9 @@
   import { onMount } from 'svelte'
   import { disable as disableAutostart, enable as enableAutostart } from '@tauri-apps/plugin-autostart'
   import { getAppInfo, getSettings, updateSettings } from '../lib/ipc'
-  import { withAlpha } from '../lib/state.svelte'
-  import type { AppInfo, Colors, Settings } from '../lib/types'
+  import WeekdayChart from './WeekdayChart.svelte'
+  import { PRESETS, resolveTheme, withAlpha } from '../lib/state.svelte'
+  import type { AppInfo, Colors, Settings, Theme } from '../lib/types'
 
   let settings = $state<Settings | null>(null)
   let info = $state<AppInfo | null>(null)
@@ -37,8 +38,9 @@
   /** 설정 창 자신도 같은 색을 쓰므로 즉시 반영해 미리보기가 된다 */
   function applyPreview() {
     if (!settings) return
-    const { colors, opacity } = settings
+    const { colors, opacity, theme } = settings
     const root = document.documentElement
+    root.dataset.theme = resolveTheme(theme)
     root.style.setProperty('--text', colors.text)
     root.style.setProperty('--text-dim', colors.textDim)
     root.style.setProperty('--c-normal', colors.gaugeNormal)
@@ -87,6 +89,16 @@
     save({ colors: { [key]: value } })
   }
 
+  /**
+   * 테마 변경 = 색 묶음 교체.
+   *
+   * 색은 전부 설정값이 CSS 변수를 덮어쓰므로 `data-theme` 만 바꿔서는 아무 일도
+   * 일어나지 않는다. 그래서 테마와 색을 한 번에 저장한다.
+   */
+  function applyThemePreset(theme: Theme) {
+    save({ theme, colors: PRESETS[resolveTheme(theme)] })
+  }
+
   /** "80, 95" → [80, 95]. 범위 밖·숫자 아닌 값은 Rust 쪽에서도 한 번 더 걸러진다. */
   function parseThresholds(text: string): number[] {
     return text
@@ -126,6 +138,21 @@
   {#if !settings}
     <p class="dim">불러오는 중…</p>
   {:else}
+    <section>
+      <h2>테마</h2>
+      <div class="row">
+        <span class="text">
+          <span class="label">색 테마</span>
+          <span class="hint">바꾸면 아래 색상이 해당 테마 기본값으로 초기화됩니다</span>
+        </span>
+        <select value={settings.theme} onchange={(e) => applyThemePreset(e.currentTarget.value as Theme)}>
+          <option value="system">시스템</option>
+          <option value="light">라이트</option>
+          <option value="dark">다크</option>
+        </select>
+      </div>
+    </section>
+
     <section>
       <h2>색상</h2>
       <div class="fields">
@@ -244,6 +271,8 @@
       </label>
     </section>
 
+    <WeekdayChart days={30} />
+
     <p class="dim">{saving ? '저장 중…' : '변경은 즉시 저장·적용됩니다'}</p>
 
     {#if info}
@@ -347,6 +376,18 @@
     width: 1rem;
     height: 1rem;
     accent-color: var(--c-normal);
+    cursor: pointer;
+  }
+
+  select {
+    flex: none;
+    padding: 0.2rem 0.4rem;
+    font: inherit;
+    font-size: 0.8rem;
+    color: var(--text);
+    background: var(--track);
+    border: 1px solid var(--border);
+    border-radius: 4px;
     cursor: pointer;
   }
 

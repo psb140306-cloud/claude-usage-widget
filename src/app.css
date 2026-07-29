@@ -2,6 +2,8 @@
    `<html data-theme="light|dark">` 로 강제 전환한다. 기본은 시스템 설정 추종. */
 
 :root {
+  /* 폼 컨트롤·스크롤바가 테마를 따라가도록. JS 가 data-theme 을 채운다 */
+  color-scheme: light dark;
   --radius: 10px;
   --font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
 
@@ -9,8 +11,13 @@
   --c-normal: #3fb950;
   --c-warning: #d29922;
   --c-danger: #f85149;
+}
 
-  color-scheme: light dark;
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
 }
 
 /* --- 다크 (기본값: 반투명 Mica 유사) --- */

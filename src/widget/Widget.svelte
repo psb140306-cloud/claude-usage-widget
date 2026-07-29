@@ -3,7 +3,7 @@
   import Chart from './Chart.svelte'
   import Gauge from './Gauge.svelte'
   import { usage } from '../lib/state.svelte'
-  import { relativeAge } from '../lib/format'
+  import { isStaleEnoughToMute, relativeAge } from '../lib/format'
   import { hideWidget, openSettingsWindow, refreshNow, setWidgetMode } from '../lib/ipc'
 
   function report(action: string) {
@@ -29,6 +29,8 @@
   const state = $derived(usage.state)
   const snap = $derived(usage.snapshot)
   const stale = $derived(state.kind === 'stale')
+  // 뱃지는 첫 실패부터, 흑백 처리는 값이 충분히 오래됐을 때만
+  const muted = $derived(stale && !!snap && isStaleEnoughToMute(snap.fetchedAt, usage.now))
   const account = $derived(usage.env?.account)
   const session = $derived(usage.env?.session)
   const modelWindow = $derived(usage.primaryModelWindow)
@@ -98,14 +100,14 @@
       utilization={snap.session?.utilization}
       resetsAt={compact ? null : snap.session?.resetsAt}
       now={usage.now}
-      muted={stale}
+      muted={muted}
     />
     <Gauge
       label="주간 (7일)"
       utilization={snap.weekly?.utilization}
       resetsAt={compact ? null : snap.weekly?.resetsAt}
       now={usage.now}
-      muted={stale}
+      muted={muted}
     />
     {#if modelWindow && !compact}
       <Gauge
@@ -113,7 +115,7 @@
         utilization={modelWindow.utilization}
         resetsAt={modelWindow.resetsAt}
         now={usage.now}
-        muted={stale}
+        muted={muted}
         active={modelWindow.isActive}
       />
     {/if}
