@@ -290,10 +290,9 @@ fn should_poll(
     elapsed >= interval || gap >= chrono::Duration::seconds(RESUME_GAP_SECS)
 }
 
-/// 스테일 판정용: 스냅샷이 얼마나 오래됐는지.
-pub fn snapshot_age(fetched_at: DateTime<Utc>, now: DateTime<Utc>) -> chrono::Duration {
-    now.signed_duration_since(fetched_at)
-}
+// 스냅샷 경과 시간 계산은 여기 두지 않는다. "N분 전 기준" 표시는 1분마다
+// 다시 그려야 해서 프론트(`src/lib/format.ts` 의 relativeAge)가 담당한다.
+// 같은 계산을 양쪽에 두면 한쪽만 고치는 사고가 난다.
 
 #[cfg(test)]
 mod tests {
@@ -399,12 +398,5 @@ mod tests {
         assert!(should_poll(d(30), d(20), d(60)));
         // 정상 확인 간격(5초)이면 기다린다
         assert!(!should_poll(d(30), d(5), d(60)));
-    }
-
-    #[test]
-    fn snapshot_age_is_positive_for_past() {
-        let now = Utc::now();
-        let past = now - chrono::Duration::minutes(3);
-        assert_eq!(snapshot_age(past, now).num_minutes(), 3);
     }
 }
