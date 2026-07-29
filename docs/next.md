@@ -23,6 +23,16 @@ npm run tauri:build                 # 인스톨러 재생성
 
 산출물: `src-tauri/target/release/bundle/nsis/Claude Usage Widget_0.1.0_x64-setup.exe` (2.83MB)
 
+## 배포 상태
+
+**개인용 — 공개 배포하지 않음** (2026-07-29 결정). 저장소는 private, 릴리스 없음.
+
+새 버전을 쓰려면 직접 빌드해 설치한다:
+```powershell
+npm run tauri:build
+& "src-tauri\target\release\bundle\nsis\Claude Usage Widget_0.1.0_x64-setup.exe" /S
+```
+
 ## 사용자 판단이 필요한 것
 
 1. **메모리 목표** — release private bytes 177.3MB로 PRD 150MB를 넘는다.
