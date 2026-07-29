@@ -279,8 +279,8 @@
       <section class="about">
         <h2>정보</h2>
         <p class="line"><strong>{info.name}</strong> v{info.version}</p>
-        <p class="line dim">제작 {info.authors}</p>
-        <p class="line dim">{info.license} 라이선스</p>
+        <p class="line dim">제작 {info.authors} · {info.license} 라이선스</p>
+        <p class="line dim">문의는 저장소 이슈로 남겨 주세요</p>
         <p class="line dim">{info.repository}</p>
         <p class="line warn">
           사용량 조회는 Anthropic이 공개하지 않은 엔드포인트를 사용합니다.
