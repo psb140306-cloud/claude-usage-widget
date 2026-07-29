@@ -74,7 +74,9 @@ Opus 5 · max · thinking
 | 히스토리 | `%APPDATA%\com.psb.claude-usage-widget\history.db` (SQLite) |
 | 자격증명(읽기 전용) | `%USERPROFILE%\.claude\.credentials.json` |
 
-제거해도 위 설정·히스토리는 남습니다. 필요하면 직접 지우세요.
+**제거해도 설정·히스토리는 남습니다.** 재설치하면 색상 설정과 사용 기록이 그대로 복원됩니다. 완전히 지우려면 `%APPDATA%\com.psb.claude-usage-widget` 폴더를 직접 삭제하세요.
+
+> 설정 파일을 직접 편집해도 됩니다. BOM이 붙어도(메모장 기본 동작) 정상적으로 읽습니다.
 
 ## 문제 해결
 
