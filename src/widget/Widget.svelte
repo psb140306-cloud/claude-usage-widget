@@ -26,9 +26,10 @@
     }
   })
 
-  const state = $derived(usage.state)
+  // `state` 라는 이름은 피한다 — 같은 스코프의 $state 룬이 스토어 구독($변수)으로 해석된다
+  const appState = $derived(usage.state)
   const snap = $derived(usage.snapshot)
-  const stale = $derived(state.kind === 'stale')
+  const stale = $derived(appState.kind === 'stale')
   // 뱃지는 첫 실패부터, 흑백 처리는 값이 충분히 오래됐을 때만
   const muted = $derived(stale && !!snap && isStaleEnoughToMute(snap.fetchedAt, usage.now))
   const account = $derived(usage.env?.account)
@@ -43,6 +44,31 @@
         '위쪽 사용률 게이지는 웹·앱을 포함한 계정 전체 기준입니다.'
       : 'Claude Code 세션 정보',
   )
+
+  /**
+   * "다시 시도"의 반응성. 재시도 결과가 이전과 같은 오류면(429 지속 등)
+   * 화면이 그대로라 버튼이 죽은 것처럼 보인다 — 시도 중임을 표시하고,
+   * 다음 상태 이벤트가 오면 (내용이 같아도) 표시를 끝낸다.
+   */
+  let retrying = $state(false)
+  let retryNote = $state<string | null>(null)
+
+  $effect(() => {
+    void appState // 다음 상태 이벤트 = 재시도 한 사이클이 끝났다는 뜻
+    retrying = false
+  })
+
+  function retry() {
+    if (retrying) return
+    retrying = true
+    retryNote = null
+    refreshNow().catch((e) => {
+      retryNote = String(e) // "N초 후에 다시 시도해 주세요" (스로틀) 등
+      retrying = false
+    })
+    // 폴러가 응답을 못 주는 극단적 경우에도 버튼이 영영 잠기지 않게
+    setTimeout(() => (retrying = false), 8000)
+  }
 </script>
 
 <!-- data-tauri-drag-region: 이 영역을 잡고 끌면 창이 이동한다 -->
@@ -82,17 +108,23 @@
     </span>
   </header>
 
-  {#if state.kind === 'loading'}
+  {#if appState.kind === 'loading'}
     <p class="msg">불러오는 중…</p>
-  {:else if state.kind === 'needsReauth'}
+  {:else if appState.kind === 'needsReauth'}
     <p class="msg">Claude Code를 한 번 실행해<br />인증을 갱신해 주세요</p>
-  {:else if state.kind === 'unavailable'}
+  {:else if appState.kind === 'unavailable'}
     <!--
       이유를 함께 보여준다. 처음 설치한 사람에게 "가져올 수 없습니다" 만
       띄우면 Claude Code 로그인이 필요한 건지 네트워크 문제인지 알 수 없다.
     -->
-    <p class="msg">{state.reason || '사용량을 가져올 수 없습니다'}</p>
-    <button onclick={() => refreshNow()}>다시 시도</button>
+    <p class="msg">{appState.reason || '사용량을 가져올 수 없습니다'}</p>
+    {#if appState.reason.includes('429')}
+      <p class="hint">요청이 잦아 서버가 잠시 제한을 걸었습니다.<br />제한이 풀리면 자동으로 복구됩니다</p>
+    {/if}
+    <button onclick={retry} disabled={retrying}>{retrying ? '확인 중…' : '다시 시도'}</button>
+    {#if retryNote}
+      <p class="hint">{retryNote}</p>
+    {/if}
   {:else if snap}
     <!-- 컴팩트 모드에서는 게이지 2개만 남기고 리셋 안내·모델별 한도·푸터를 접는다 -->
     <Gauge
@@ -135,6 +167,7 @@
           {#if session?.thinking}<span class="sep">·</span>thinking{/if}
           {#if session?.sourceProject}<span class="src">@{ellipsize(session.sourceProject)}</span>{/if}
         </span>
+        <!-- 뱃지는 별도 줄 — 같은 줄에 두면 출처 라벨을 밀어내 @1… 처럼 뭉개진다 -->
         {#if stale}
           <span class="badge">{relativeAge(snap.fetchedAt, usage.now)}</span>
         {/if}
@@ -216,10 +249,12 @@
   }
 
   footer {
+    /* 세로 배치: 1줄 = 모델·effort·thinking·출처, 2줄(스테일 시) = "N분 전 기준" 뱃지.
+       뱃지를 같은 줄에 두면 출처 라벨이 밀려 @1… 처럼 잘린다 */
     display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.4rem;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.2rem;
     padding-top: 0.2rem;
     border-top: 1px solid var(--border);
     /* 모델·effort·thinking 줄. 여기도 안 보인다는 지적이 있어 더 올렸다 */
@@ -228,6 +263,7 @@
   }
 
   .session-info {
+    max-width: 100%; /* column flex 에서 줄 폭을 넘으면 ellipsis 가 받는다 */
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -268,5 +304,18 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     cursor: pointer;
+  }
+  button:not(.ctl):disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+
+  .hint {
+    margin: 0;
+    font-size: 0.72rem;
+    line-height: 1.4;
+    color: var(--text-dim);
+    text-align: center;
+    opacity: 0.85;
   }
 </style>

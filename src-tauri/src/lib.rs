@@ -27,7 +27,8 @@ use settings::{Settings, SettingsStore, WidgetMode, EVENT_SETTINGS};
 ///
 /// 2026-07-29 글자 크기를 전체적으로 1pt 올리면서 세로도 함께 늘렸다.
 /// 폭도 조금 넓혔다 — "주간 (Fable)" 처럼 라벨이 긴 게이지에서 % 와 붙는다.
-const WIDGET_SIZE_EXPANDED: (f64, f64) = (260.0, 372.0);
+/// 2026-07-30 스테일 뱃지("N분 전 기준")를 푸터 둘째 줄로 옮기며 +18.
+const WIDGET_SIZE_EXPANDED: (f64, f64) = (260.0, 390.0);
 const WIDGET_SIZE_COMPACT: (f64, f64) = (260.0, 122.0);
 
 /// 창 라벨. `tauri.conf.json` 및 `capabilities/default.json` 과 일치해야 한다.
