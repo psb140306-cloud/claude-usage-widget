@@ -32,6 +32,13 @@
     hint: string
   }
 
+  /** 제목의 ⓘ 에 담는 측정 기준 설명. 리포트가 "무엇의" 수치인지 오해가 잦은 지점이다. */
+  const METHOD_TITLE =
+    '세션(5시간) 사용률의 구간별 최고치를 봅니다.\n' +
+    '오늘: 시간대별 최고 · 7/30일: 일별 최고 · 1년: 일 최고의 월평균\n\n' +
+    '토큰·비용이 아니라 한도 대비 %이며, 웹·앱을 포함한 계정 전체 기준입니다.\n' +
+    '위젯이 꺼져 있던 시간은 기록이 없어 빈 막대로 남습니다.'
+
   let period = $state<Period>('week')
   let bars = $state<Bar[]>([])
   let summary = $state('')
@@ -171,7 +178,7 @@
 
 <section>
   <div class="head">
-    <h2>사용량 리포트</h2>
+    <h2 title={METHOD_TITLE}>사용량 리포트 <span class="info" aria-hidden="true">ⓘ</span></h2>
     <div class="tabs" role="tablist">
       {#each PERIODS as p (p.key)}
         <button
@@ -227,6 +234,12 @@
     color: var(--text-dim);
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    cursor: help;
+  }
+
+  .info {
+    font-weight: 400;
+    opacity: 0.75;
   }
 
   .head {
