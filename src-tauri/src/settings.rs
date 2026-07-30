@@ -30,6 +30,18 @@ pub struct Position {
     pub y: i32,
 }
 
+/// 사용자가 드래그로 조정한 위젯 크기 (논리 픽셀, 확장 모드 기준).
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct WinSize {
+    pub width: f64,
+    pub height: f64,
+}
+
+/// 위젯 리사이즈 허용 범위 (논리 픽셀). 최소는 게이지·차트가 깨지지 않는 하한,
+/// 최대는 "위젯"이라는 정체성을 벗어나지 않는 상한.
+pub const WIDGET_MIN_SIZE: (f64, f64) = (240.0, 300.0);
+pub const WIDGET_MAX_SIZE: (f64, f64) = (560.0, 900.0);
+
 /// 위젯 색상. 전부 `#rrggbb` 16진 문자열이며 프론트가 CSS 변수로 꽂는다.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +93,10 @@ pub struct Settings {
     pub auto_start: bool,
     pub widget_mode: WidgetMode,
     pub widget_position: Option<Position>,
+    /// 확장 모드에서 사용자가 조정한 크기. 없으면 기본 크기.
+    /// (기존 설정 파일에는 이 키가 없으므로 default 필수 — 빠지면 전체가 기본값으로 리셋된다)
+    #[serde(default)]
+    pub widget_size: Option<WinSize>,
     pub colors: Colors,
 }
 
@@ -97,6 +113,7 @@ impl Default for Settings {
             // 처음 실행에서는 정보를 다 보여준다. 접는 건 사용자가 정한다.
             widget_mode: WidgetMode::Expanded,
             widget_position: None,
+            widget_size: None,
             colors: Colors::default(),
         }
     }
@@ -182,6 +199,15 @@ impl Settings {
         };
         self.thresholds
             .retain(|t| t.is_finite() && (0.0..=100.0).contains(t));
+        self.widget_size = self.widget_size.and_then(|s| {
+            if !s.width.is_finite() || !s.height.is_finite() {
+                return None; // 손으로 고친 파일의 NaN 등 — 기본 크기로 되돌린다
+            }
+            Some(WinSize {
+                width: s.width.clamp(WIDGET_MIN_SIZE.0, WIDGET_MAX_SIZE.0),
+                height: s.height.clamp(WIDGET_MIN_SIZE.1, WIDGET_MAX_SIZE.1),
+            })
+        });
         self.colors = self.colors.sanitized();
         self
     }
@@ -321,6 +347,35 @@ mod tests {
         assert_eq!(s.polling_interval_sec, crate::poller::MIN_INTERVAL_SECS);
         assert_eq!(s.opacity, 1.0);
         assert_eq!(s.thresholds, vec![80.0]);
+    }
+
+    /// v0.2.x 설정 파일에는 widgetSize 키가 없다 — 그것 때문에 나머지 설정이
+    /// 기본값으로 리셋되면 안 되고, 범위 밖 값은 스펙 안으로 들어와야 한다.
+    #[test]
+    fn widget_size_missing_key_and_clamp() {
+        let mut raw = serde_json::to_value(Settings::default()).unwrap();
+        raw.as_object_mut().unwrap().remove("widgetSize");
+        raw["opacity"] = json!(0.5);
+
+        let s: Settings = serde_json::from_str(&raw.to_string()).unwrap();
+        assert!(s.widget_size.is_none(), "키가 없으면 None (구버전 파일 호환)");
+        assert_eq!(s.opacity, 0.5, "다른 설정은 유지");
+
+        let s = Settings {
+            widget_size: Some(WinSize { width: 9999.0, height: 10.0 }),
+            ..Default::default()
+        }
+        .sanitized();
+        let size = s.widget_size.unwrap();
+        assert_eq!(size.width, WIDGET_MAX_SIZE.0);
+        assert_eq!(size.height, WIDGET_MIN_SIZE.1);
+
+        let s = Settings {
+            widget_size: Some(WinSize { width: f64::NAN, height: 400.0 }),
+            ..Default::default()
+        }
+        .sanitized();
+        assert!(s.widget_size.is_none(), "NaN 은 기본 크기로 되돌린다");
     }
 
     /// 메모장·PowerShell 로 고친 설정 파일에는 BOM 이 붙는다.

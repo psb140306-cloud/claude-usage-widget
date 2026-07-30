@@ -33,10 +33,10 @@
     return [x, session, weekly]
   }
 
-  function options(width: number): uPlot.Options {
+  function options(width: number, height: number): uPlot.Options {
     return {
       width,
-      height: 72,
+      height,
       // 위젯 안에 들어가는 스파크라인에 가깝다 — 범례·커서는 군더더기다
       legend: { show: false },
       cursor: { show: false },
@@ -80,7 +80,11 @@
       if (chart) {
         chart.setData(data)
       } else if (!empty) {
-        chart = new uPlot(options(host.clientWidth || 220), data, host)
+        chart = new uPlot(
+          options(host.clientWidth || 220, host.clientHeight || 72),
+          data,
+          host,
+        )
       }
     } catch (e) {
       failed = String(e)
@@ -89,7 +93,25 @@
 
   onMount(() => {
     load()
+
+    // 창을 세로로 늘리면 차트가 남는 공간을 채운다 (.chart 의 flex:1).
+    // uPlot 은 명시적 픽셀 크기가 필요하므로 컨테이너 크기를 따라가게 한다.
+    // 리사이즈 드래그 중 이벤트가 몰리므로 프레임당 한 번만 반영한다.
+    let raf = 0
+    const observer = new ResizeObserver(() => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        if (chart && host) {
+          chart.setSize({ width: host.clientWidth, height: host.clientHeight })
+        }
+      })
+    })
+    if (host) observer.observe(host)
+
     return () => {
+      observer.disconnect()
+      if (raf) cancelAnimationFrame(raf)
       chart?.destroy()
       chart = null
     }
@@ -150,6 +172,10 @@
   .chart {
     width: 100%;
     min-height: 72px;
+    /* main(flex column)의 남는 세로 공간을 차트가 가져간다 — 창을 늘리면 차트가 커진다 */
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
   }
 
   .note {

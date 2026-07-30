@@ -50,6 +50,9 @@ export const queryDailyReport = (days: number) =>
 export const setWidgetMode = (mode: 'compact' | 'expanded') =>
   invoke<void>('set_widget_mode', { mode })
 
+/** 위젯 크기를 기본값(260×390)으로 초기화. */
+export const resetWidgetSize = () => invoke<void>('reset_widget_size')
+
 /** 위젯을 트레이로 숨긴다. 앱은 계속 상주한다. */
 export const hideWidget = () => invoke<void>('hide_widget')
 

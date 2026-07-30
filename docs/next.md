@@ -1,16 +1,34 @@
 # 다음 세션 가이드
 
-> 작성: 2026-07-29
-> 마지막 커밋: 59dbcc6 docs: 공개 배포하지 않기로 결정 - 개인용 유지
+> 작성: 2026-07-30
+> 마지막 커밋: d0ffef8 docs(report): 리포트 측정 기준을 ⓘ 툴팁으로 안내 (v0.2.4)
 
 ## 즉시 검증 (다음 세션 첫 1분)
 ```powershell
-cd src-tauri; cargo test --lib     # 60/60 통과해야 함
+cd src-tauri; cargo test --lib     # 64/64 통과해야 함
 npm run check                       # 0 errors
 npm run tauri:dev                   # 우측 하단 위젯
 npm run tauri:build                 # 인스톨러 재생성
 ```
 설치본이 이미 돌고 있으면 `%LOCALAPPDATA%\Claude Usage Widget\claude-usage-widget.exe` 를 실행하면 된다.
+현재 설치본: **v0.2.4** (2026-07-30, 설정 창에 사용량 리포트 포함).
+
+## 2026-07-30 완료
+
+| 항목 | 커밋 |
+|---|---|
+| 보안 수정(이메일 미수집·HTTP 1MB 상한·.claude.json 가드) + **기간 리포트**(오늘/7일/30일/1년) | d7e9a4a |
+| 출처 라벨을 cwd 기반 전체 폴더명으로 — 한글 지원, 24자 초과 … | 5feeada |
+| 스테일 뱃지 푸터 둘째 줄 분리(높이 390) + 다시 시도 피드백·429 안내 | 2a9a251 |
+| 리포트 측정 기준 ⓘ 툴팁 | d0ffef8 |
+
+핵심 구조 변화: **`daily_stats` 일별 롤업 테이블** 추가. 원본 스냅샷은 90일 보존이지만
+하루 요약(일 최고치)은 지우지 않아 1년 리포트가 성립한다. prune 이 하루 중간을 잘라도
+"표본 수가 많은 쪽이 이긴다" 불변식으로 요약이 퇴화하지 않는다 (history.rs).
+
+진단 2건: ① 429 는 서버 측 제한 — 5분 백오프 후 자동 복구 (실제 확인).
+② Defender `Backdoor:PHP/Perhetshell` 경보는 위젯 무관 — `아카이브\보류\Echo Mail` 의
+침투 테스트 픽스처를 Syncthing 이 반복 동기화 → 반복 차단 루프. 원본 장치에서 삭제 권고.
 
 ## 2026-07-29 완료
 
@@ -39,16 +57,16 @@ npm run tauri:build                 # 인스톨러 재생성
 | M5 히스토리 & 차트 | ✅ SQLite 90일 보관, uPlot 24시간 추이, 요일별 패턴 |
 | M6 패키징 | ✅ 인스톨러·설치·제거 검증. ⚠️ **메모리 KPI만 미달성** |
 
-산출물: `src-tauri/target/release/bundle/nsis/Claude Usage Widget_0.1.0_x64-setup.exe` (2.71MB)
+산출물: `src-tauri/target/release/bundle/nsis/Claude Usage Widget_0.2.4_x64-setup.exe` (약 2.7MB)
 
 ## 배포 상태
 
 **개인용 — 공개 배포하지 않음** (2026-07-29 결정). 저장소는 private, 릴리스 없음.
 
-새 버전을 쓰려면 직접 빌드해 설치한다:
+새 버전을 쓰려면 직접 빌드해 설치한다 (버전은 tauri.conf.json 과 일치시킬 것):
 ```powershell
 npm run tauri:build
-& "src-tauri\target\release\bundle\nsis\Claude Usage Widget_0.1.0_x64-setup.exe" /S
+& "src-tauri\target\release\bundle\nsis\Claude Usage Widget_0.2.4_x64-setup.exe" /S
 ```
 
 ## 사용자 판단이 필요한 것
@@ -56,8 +74,11 @@ npm run tauri:build
 1. **메모리 목표** — release private bytes 177.3MB로 PRD 150MB를 넘는다.
    앱 자체는 7.6MB이고 나머지는 WebView2 6개 프로세스라 앱 코드로 줄일 여지가 없다.
    → 목표를 상향할지, 네이티브 UI로 갈지 결정 필요 (tasks.md M6 참조)
-2. **설치/제거 테스트** — 실제 시스템에 설치가 필요해 보류 중
+2. ~~설치/제거 테스트~~ → ✅ 2026-07-30 설치 사이클 5회(업그레이드·실행 중 교체 포함) 전부 정상
 3. **`/usage` 대조** (M1 잔여) — 대화형 세션에서 `/usage` 실행 후 위젯 값과 비교
+4. **LICENSE 파일** — Cargo.toml/README 는 MIT 선언인데 전문 파일이 없다. 배포·공개 전 생성 필요 (개인용인 지금은 무해)
+5. **출처 라벨 셋째 줄 분리** — `Fable 5 · max · thinking` 조합에선 라벨이 여전히 CSS ellipsis 로 잘린다 (전체는 툴팁). 항상 다 보이게 하려면 줄 분리
+6. **리포트 주간 기준 보기** — DB 에는 주간·모델별 피크도 저장 중. 화면은 현재 세션 기준만
 
 ## 남은 작업
 
@@ -67,6 +88,8 @@ npm run tauri:build
 - 토큰 만료 시 갱신 동작 — 실제 만료 시점이 와야 확인 가능
 - 24시간 상주 테스트 (크래시·메모리 누수)
 - 재부팅 후 자동 시작 — 설정에서 자동 실행을 켜고 재부팅해야 확인됨
+- 스테일 뱃지 **둘째 줄** 표시 실물 확인 — 다음 조회 실패(429/네트워크 단절) 때 푸터를 볼 것
+- 1년 리포트는 daily_stats 가 쌓여야 의미 — 기록 시작 2026-07-28
 - (보류) GitHub Releases 자동 업데이트
 
 ## 알려진 이슈
@@ -87,3 +110,5 @@ npm run tauri:build
 3. 존재 확인과 생성이 다른 스레드에 있으면 **설정 창이 두 개 겹쳐 뜬다**. 하나를 닫아도 뒤에 남아 "안 닫힌다"로 보이고 하나는 메시지 루프가 멈춘다 → 확인+생성을 메인 스레드 안에서 원자적으로
 4. 버튼을 상태 분기 안에 두면 조회 실패 중에 설정을 못 연다 → 헤더는 항상 렌더링
 5. 401 응답의 본문을 먼저 읽으면 `Auth` 가 아니라 재시도 대상 `Network` 로 오분류된다 → 상태코드를 먼저 판정
+6. Svelte 5: 지역 변수 이름 `state` 가 있으면 `$state` 룬이 **스토어 구독**으로 해석돼 컴파일 오류 → 컴포넌트에서 `state` 라는 변수명 금지 (2026-07-30)
+7. PowerShell 5.1: 네이티브 명령 인자 속 큰따옴표가 깨진다 → 여러 줄 커밋 메시지는 파일로 쓰고 `git commit -F` (2026-07-30)

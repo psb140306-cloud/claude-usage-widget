@@ -31,6 +31,9 @@ use settings::{Settings, SettingsStore, WidgetMode, EVENT_SETTINGS};
 const WIDGET_SIZE_EXPANDED: (f64, f64) = (260.0, 390.0);
 const WIDGET_SIZE_COMPACT: (f64, f64) = (260.0, 122.0);
 
+/// 줌 배율의 기준 너비. 이 너비에서 1.0배 — 위젯을 넓히면 UI 전체가 비례 확대된다.
+const WIDGET_BASE_WIDTH: f64 = 260.0;
+
 /// 창 라벨. `tauri.conf.json` 및 `capabilities/default.json` 과 일치해야 한다.
 const WIDGET_WINDOW: &str = "widget";
 const SETTINGS_WINDOW: &str = "settings";
@@ -44,6 +47,8 @@ struct AppCtx {
     history: std::sync::Mutex<Option<History>>,
     /// 위젯 위치를 마지막으로 저장한 시각 — 드래그 중 파일을 매번 쓰지 않기 위함
     position_saved_at: std::sync::Mutex<Option<std::time::Instant>>,
+    /// 위젯 크기 저장 시각 — 리사이즈 드래그도 `Resized` 가 수십 번 온다
+    size_saved_at: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
 /// 위치를 다시 저장하기까지 두는 최소 간격.
@@ -68,6 +73,24 @@ impl AppCtx {
             .update(serde_json::json!({ "widgetPosition": { "x": x, "y": y } }))
         {
             eprintln!("위젯 위치 저장 실패: {e}");
+        }
+    }
+
+    /// 확장 모드 크기(논리 픽셀)를 저장한다. 다음 실행·모드 복귀 때 복원된다.
+    fn remember_size(&self, width: f64, height: f64) {
+        {
+            let mut last = self.size_saved_at.lock().unwrap();
+            let now = std::time::Instant::now();
+            if matches!(*last, Some(t) if now.duration_since(t) < POSITION_SAVE_INTERVAL) {
+                return;
+            }
+            *last = Some(now);
+        }
+
+        if let Err(e) = self.settings.update(serde_json::json!({
+            "widgetSize": { "width": width.round(), "height": height.round() }
+        })) {
+            eprintln!("위젯 크기 저장 실패: {e}");
         }
     }
 }
@@ -240,9 +263,17 @@ fn set_widget_mode(
     ctx: tauri::State<'_, AppCtx>,
     mode: String,
 ) -> Result<(), String> {
+    // 확장 크기는 사용자가 드래그로 조정한 값을, 컴팩트는 그 너비에 고정 높이를 쓴다
+    let expanded = ctx
+        .settings
+        .get()
+        .widget_size
+        .map(|s| (s.width, s.height))
+        .unwrap_or(WIDGET_SIZE_EXPANDED);
+
     let (target, size) = match mode.as_str() {
-        "compact" => (WidgetMode::Compact, WIDGET_SIZE_COMPACT),
-        "expanded" => (WidgetMode::Expanded, WIDGET_SIZE_EXPANDED),
+        "compact" => (WidgetMode::Compact, (expanded.0, WIDGET_SIZE_COMPACT.1)),
+        "expanded" => (WidgetMode::Expanded, expanded),
         other => return Err(format!("알 수 없는 모드: {other}")),
     };
 
@@ -253,6 +284,11 @@ fn set_widget_mode(
     // 창 크기보다 **UI 전환을 먼저** 알린다. 순서가 반대면 확장 레이아웃이
     // 잠깐 좁은 창에 잘려 보인다.
     apply_settings(&app, &ctx, serde_json::json!({ "widgetMode": target }))?;
+
+    // 컴팩트는 확장 최소 높이 제약에 걸리지 않도록 제약을 먼저 푼다
+    if target == WidgetMode::Compact {
+        apply_size_constraints(&win, target);
+    }
 
     // 우측 하단에 붙여 쓰는 위젯이므로, 크기가 바뀌어도 그 모서리는 그대로 둔다.
     // 좌상단을 고정하면 접을 때 화면 가운데로 떠오른 것처럼 보인다.
@@ -268,6 +304,45 @@ fn set_widget_mode(
     win.set_position(tauri::PhysicalPosition::new(pos.x, y))
         .map_err(|e| e.to_string())?;
 
+    // 확장 제약은 목표 크기가 적용된 뒤에 건다
+    if target == WidgetMode::Expanded {
+        apply_size_constraints(&win, target);
+    }
+    apply_zoom(&win);
+
+    Ok(())
+}
+
+/// 위젯 크기를 기본값(260×390)으로 되돌린다 — 설정 창의 "기본 크기로" 버튼.
+///
+/// 드래그로는 정확히 원래 크기로 못 돌아가므로 명시적 초기화 경로를 둔다.
+#[tauri::command]
+fn reset_widget_size(app: tauri::AppHandle, ctx: tauri::State<'_, AppCtx>) -> Result<(), String> {
+    apply_settings(&app, &ctx, serde_json::json!({ "widgetSize": null }))?;
+
+    let win = app
+        .get_webview_window(WIDGET_WINDOW)
+        .ok_or("위젯 창을 찾을 수 없습니다")?;
+
+    // 컴팩트 상태면 저장값만 지운다 — 창 크기는 확장으로 돌아올 때 기본값이 된다
+    if ctx.settings.get().widget_mode != WidgetMode::Expanded {
+        return Ok(());
+    }
+
+    let scale = win.scale_factor().map_err(|e| e.to_string())?;
+    let before = win.outer_size().map_err(|e| e.to_string())?;
+    let pos = win.outer_position().map_err(|e| e.to_string())?;
+
+    win.set_size(LogicalSize::new(WIDGET_SIZE_EXPANDED.0, WIDGET_SIZE_EXPANDED.1))
+        .map_err(|e| e.to_string())?;
+
+    // 아래 모서리 고정 — 모드 전환과 같은 규칙 (set_widget_mode 참고)
+    let after_h = (WIDGET_SIZE_EXPANDED.1 * scale).round() as i32;
+    let y = anchor_bottom(pos.y, before.height, after_h);
+    win.set_position(tauri::PhysicalPosition::new(pos.x, y))
+        .map_err(|e| e.to_string())?;
+
+    apply_zoom(&win);
     Ok(())
 }
 
@@ -340,6 +415,46 @@ async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 // ─────────────────────────── 창 배치 ───────────────────────────
+
+/// 너비에 비례해 웹뷰 줌을 건다 — 위젯을 넓히면 글자·게이지·차트가 함께 커진다.
+///
+/// 리플로우(글자 고정, 여백만 증가)가 아니라 **확대**가 이 위젯 리사이즈의 의미다.
+/// 리사이즈 요구의 실제 동기가 가독성이기 때문 (2026-07-29 글자 크기 지적과 같은 맥락).
+/// 높이는 줌과 무관하게 자유 — 남는 세로 공간은 차트가 채운다 (Chart.svelte).
+fn apply_zoom(win: &tauri::WebviewWindow) {
+    let scale = win.scale_factor().unwrap_or(1.0);
+    let Ok(size) = win.inner_size() else { return };
+    let logical_w = size.width as f64 / scale;
+    let zoom = (logical_w / WIDGET_BASE_WIDTH).clamp(0.8, 2.5);
+    if let Err(e) = win.set_zoom(zoom) {
+        eprintln!("줌 적용 실패: {e}");
+    }
+}
+
+/// 모드별 리사이즈 제약. 컴팩트는 고정 스트립, 확장은 범위 안에서 자유.
+///
+/// 컴팩트 높이(122)는 확장 최소 높이보다 작으므로, 컴팩트로 갈 때는
+/// **제약을 먼저 풀어야** `set_size` 가 min 에 걸려 무시되지 않는다.
+fn apply_size_constraints(win: &tauri::WebviewWindow, mode: WidgetMode) {
+    match mode {
+        WidgetMode::Compact => {
+            let _ = win.set_resizable(false);
+            let _ = win.set_min_size(None::<LogicalSize<f64>>);
+            let _ = win.set_max_size(None::<LogicalSize<f64>>);
+        }
+        WidgetMode::Expanded => {
+            let _ = win.set_min_size(Some(LogicalSize::new(
+                settings::WIDGET_MIN_SIZE.0,
+                settings::WIDGET_MIN_SIZE.1,
+            )));
+            let _ = win.set_max_size(Some(LogicalSize::new(
+                settings::WIDGET_MAX_SIZE.0,
+                settings::WIDGET_MAX_SIZE.1,
+            )));
+            let _ = win.set_resizable(true);
+        }
+    }
+}
 
 /// 저장된 위치가 지금 화면 배치에서 여전히 쓸 만한지.
 ///
@@ -447,6 +562,7 @@ pub fn run() {
             query_weekday_stats,
             query_daily_report,
             set_widget_mode,
+            reset_widget_size,
             hide_widget,
             open_settings_window,
         ])
@@ -490,6 +606,7 @@ pub fn run() {
                 )),
                 history: std::sync::Mutex::new(history),
                 position_saved_at: std::sync::Mutex::new(None),
+                size_saved_at: std::sync::Mutex::new(None),
                 settings,
             });
 
@@ -530,13 +647,19 @@ pub fn run() {
             // 위젯은 config 에서 visible:false 로 만들어 두고, 배치한 뒤에 보여준다.
             // 그러지 않으면 좌상단에 떴다가 우측 하단으로 튀는 게 보인다.
             if let Some(widget) = app.get_webview_window(WIDGET_WINDOW) {
-                // 저장된 모드가 컴팩트면 그 크기로 시작한다
-                if saved.widget_mode == WidgetMode::Compact {
-                    let _ = widget.set_size(LogicalSize::new(
-                        WIDGET_SIZE_COMPACT.0,
-                        WIDGET_SIZE_COMPACT.1,
-                    ));
-                }
+                // 저장된 모드·크기로 시작한다. 컴팩트 높이는 확장 min 제약보다
+                // 작으므로 제약을 크기보다 먼저 적용한다 (컴팩트 = 제약 해제).
+                let expanded = saved
+                    .widget_size
+                    .map(|s| (s.width, s.height))
+                    .unwrap_or(WIDGET_SIZE_EXPANDED);
+                let start = if saved.widget_mode == WidgetMode::Compact {
+                    (expanded.0, WIDGET_SIZE_COMPACT.1)
+                } else {
+                    expanded
+                };
+                apply_size_constraints(&widget, saved.widget_mode);
+                let _ = widget.set_size(LogicalSize::new(start.0, start.1));
                 // 저장된 위치가 있고 지금 화면에서 보이는 자리면 복원하고,
                 // 아니면 기본 배치(우측 하단)로 간다.
                 let restored = saved.widget_position.and_then(|p| {
@@ -556,6 +679,7 @@ pub fn run() {
                         eprintln!("위젯 기본 위치 설정 실패(기본 배치로 진행): {e}");
                     }
                 }
+                apply_zoom(&widget);
                 widget.show()?;
             }
 
@@ -582,6 +706,24 @@ pub fn run() {
                 WindowEvent::Moved(pos) => {
                     if let Some(ctx) = window.app_handle().try_state::<AppCtx>() {
                         ctx.remember_position(pos.x, pos.y);
+                    }
+                }
+                // 가장자리 드래그 리사이즈: 줌을 즉시 따라가게 하고, 확장 크기는 저장한다
+                WindowEvent::Resized(size) => {
+                    let app = window.app_handle();
+                    if let Some(win) = app.get_webview_window(WIDGET_WINDOW) {
+                        apply_zoom(&win);
+                    }
+                    if let Some(ctx) = app.try_state::<AppCtx>() {
+                        if ctx.settings.get().widget_mode == WidgetMode::Expanded {
+                            let scale = window.scale_factor().unwrap_or(1.0);
+                            let w = size.width as f64 / scale;
+                            let h = size.height as f64 / scale;
+                            // 모드 전환 중의 컴팩트 스트립 높이는 확장 크기로 저장하지 않는다
+                            if h >= settings::WIDGET_MIN_SIZE.1 {
+                                ctx.remember_size(w, h);
+                            }
+                        }
                     }
                 }
                 _ => {}

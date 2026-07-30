@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte'
   import { disable as disableAutostart, enable as enableAutostart } from '@tauri-apps/plugin-autostart'
-  import { getAppInfo, getSettings, updateSettings } from '../lib/ipc'
+  import { getAppInfo, getSettings, resetWidgetSize, updateSettings } from '../lib/ipc'
   import ReportSection from './ReportSection.svelte'
   import WeekdayChart from './WeekdayChart.svelte'
   import { PRESETS, resolveTheme, withAlpha } from '../lib/state.svelte'
@@ -109,6 +109,20 @@
       .sort((a, b) => a - b)
   }
 
+  /** 위젯 크기를 기본값으로. 드래그로는 정확히 못 돌아가서 버튼을 둔다. */
+  async function onResetSize() {
+    saving = true
+    error = null
+    try {
+      await resetWidgetSize()
+      settings = await getSettings()
+    } catch (e) {
+      error = String(e)
+    } finally {
+      saving = false
+    }
+  }
+
   /**
    * 자동 시작은 설정 파일만 바꿔선 안 되고 OS 등록도 해야 한다.
    * 플러그인 호출이 실패하면 설정도 바꾸지 않는다 — 실제 상태와 표시가 어긋나면 안 된다.
@@ -195,6 +209,14 @@
         />
         <code>{settings.opacity.toFixed(2)}</code>
       </label>
+
+      <div class="row">
+        <span class="text">
+          <span class="label">위젯 크기</span>
+          <span class="hint">가장자리 드래그로 조절 · 너비를 늘리면 전체가 확대됩니다</span>
+        </span>
+        <button class="action" onclick={onResetSize} disabled={saving}>기본 크기로</button>
+      </div>
 
       <label class="row slider">
         <span class="text">
@@ -392,6 +414,25 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     cursor: pointer;
+  }
+
+  .action {
+    flex: none;
+    padding: 0.25rem 0.6rem;
+    font: inherit;
+    font-size: 0.78rem;
+    color: var(--text);
+    background: var(--track);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .action:hover {
+    background: var(--bg-solid);
+  }
+  .action:disabled {
+    opacity: 0.55;
+    cursor: default;
   }
 
   .thresholds {

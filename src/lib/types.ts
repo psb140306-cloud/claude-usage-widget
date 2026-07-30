@@ -131,6 +131,8 @@ export interface Settings {
   autoStart: boolean
   widgetMode: WidgetMode
   widgetPosition: { x: number; y: number } | null
+  /** 확장 모드에서 사용자가 조정한 크기 (논리 px). 없으면 기본 260×390 */
+  widgetSize: { width: number; height: number } | null
   colors: Colors
 }
 

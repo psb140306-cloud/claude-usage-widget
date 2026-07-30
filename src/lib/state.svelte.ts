@@ -50,6 +50,7 @@ const FALLBACK_SETTINGS: Settings = {
   autoStart: false,
   widgetMode: 'expanded',
   widgetPosition: null,
+  widgetSize: null,
   opacity: 0.85,
   colors: {
     text: '#f3f3f3',

@@ -1,6 +1,6 @@
 {
   "name": "claude-usage-widget",
-  "version": "0.2.4",
+  "version": "0.3.1",
   "description": "Claude Code 구독 사용량(5시간 세션 / 주간 한도)을 상시 표시하는 Windows 11 트레이 + 플로팅 위젯",
   "type": "module",
   "private": true,
