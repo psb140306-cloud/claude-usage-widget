@@ -4,7 +4,7 @@ Claude Code의 OAuth 인증을 재사용하여 구독 사용량(5시간 세션/�
 
 ## 프로젝트 상태
 
-- 현재 단계: **M1~M6 완료 + v0.2.0 (2026-07-30)** — 보안 수정(email 미전달·HTTP 응답 상한) + 기간 리포트 추가. 상세는 [docs/next.md](docs/next.md)
+- 현재 단계: **M1~M6 완료 + v0.2.1 (2026-07-30)** — 보안 수정(email 미전달·HTTP 응답 상한) + 기간 리포트 + 출처 라벨(cwd 기반, 한글 지원). 상세는 [docs/next.md](docs/next.md)
 - 위젯 표시: 계정·플랜 배지 / 세션·주간·모델별 게이지(각각 리셋 안내) / 24시간 추이 차트 / 모델·effort·thinking
 - 설정 창: 사용량 리포트(오늘/7일/30일/1년, `daily_stats` 일별 롤업 — 원본 90일과 달리 무기한 보존) + 요일 패턴
 - ⚠️ **메모리 KPI 미달성** — release private bytes 177.3MB (목표 150MB). 앱 자체는 7.6MB, 나머지는 WebView2. 사용자 판단 대기 (tasks.md M6)

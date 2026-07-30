@@ -93,6 +93,18 @@ export function isStaleEnoughToMute(fetchedAt: string, now: Date = new Date()): 
   return now.getTime() - t >= STALE_MUTE_MINUTES * 60_000
 }
 
+/**
+ * 푸터 출처(@프로젝트) 라벨의 표시 상한. 넘으면 잘라서 `…` 을 붙인다.
+ * 전체 이름은 툴팁(sessionTitle)이 보여주므로 여기서 잘라도 정보가 사라지지 않는다.
+ * (한글처럼 넓은 글자는 이 상한 안에서도 CSS ellipsis 가 한 번 더 받쳐준다)
+ */
+export const SOURCE_LABEL_MAX_CHARS = 24
+
+export function ellipsize(text: string, max = SOURCE_LABEL_MAX_CHARS): string {
+  const chars = [...text] // 코드포인트 단위 — 서로게이트 쌍을 반 토막 내지 않는다
+  return chars.length <= max ? text : chars.slice(0, max - 1).join('') + '…'
+}
+
 /** 스테일 뱃지용 "N분 전 기준". */
 export function relativeAge(fetchedAt: string, now: Date = new Date()): string {
   const t = new Date(fetchedAt).getTime()

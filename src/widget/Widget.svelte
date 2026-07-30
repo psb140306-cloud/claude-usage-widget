@@ -3,7 +3,7 @@
   import Chart from './Chart.svelte'
   import Gauge from './Gauge.svelte'
   import { usage } from '../lib/state.svelte'
-  import { isStaleEnoughToMute, relativeAge } from '../lib/format'
+  import { ellipsize, isStaleEnoughToMute, relativeAge } from '../lib/format'
   import { hideWidget, openSettingsWindow, refreshNow, setWidgetMode } from '../lib/ipc'
 
   function report(action: string) {
@@ -133,7 +133,7 @@
           {#if session?.modelLabel}{session.modelLabel}{/if}
           {#if session?.effort}<span class="sep">·</span>{session.effort}{/if}
           {#if session?.thinking}<span class="sep">·</span>thinking{/if}
-          {#if session?.sourceProject}<span class="src">@{session.sourceProject}</span>{/if}
+          {#if session?.sourceProject}<span class="src">@{ellipsize(session.sourceProject)}</span>{/if}
         </span>
         {#if stale}
           <span class="badge">{relativeAge(snap.fetchedAt, usage.now)}</span>

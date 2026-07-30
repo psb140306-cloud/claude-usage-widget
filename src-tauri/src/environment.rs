@@ -49,10 +49,11 @@ pub struct Session {
     pub effort: Option<String>,
     /// 최근 응답에 thinking 블록이 있었는지
     pub thinking: bool,
-    /// 이 값들이 어느 프로젝트에서 왔는지.
+    /// 이 값들이 어느 프로젝트에서 왔는지 — 실제 폴더명 전체 (한글 포함).
     ///
     /// Claude Code 세션이 여러 개면 "가장 최근에 쓴" 세션이 이긴다.
     /// 어느 쪽 값인지 모르면 오해하기 쉬우므로 출처를 함께 노출한다.
+    /// 표시 길이 제한은 프론트(`format.ts` 의 ellipsize) 담당 — 툴팁은 전체를 보여줘야 한다.
     pub source_project: Option<String>,
 }
 
@@ -100,6 +101,8 @@ struct TranscriptLine {
     #[serde(rename = "type")]
     kind: Option<String>,
     effort: Option<String>,
+    /// 세션의 작업 디렉터리 원본 경로. 폴더명과 달리 한글이 살아 있다.
+    cwd: Option<String>,
     message: Option<TranscriptMessage>,
 }
 
@@ -163,23 +166,33 @@ fn load_session() -> Option<Session> {
     let text = read_tail(&path, TAIL_BYTES)?;
 
     let mut session = parse_session(&text);
-    session.source_project = project_label(&path);
+    // cwd 를 한 줄도 못 읽었을 때만 폴더명으로 물러난다
+    if session.source_project.is_none() {
+        session.source_project = project_label(&path);
+    }
     Some(session)
 }
 
-/// 트랜스크립트 경로 → 사람이 읽는 프로젝트 이름.
+/// cwd 를 못 읽었을 때의 폴백: 납작해진 트랜스크립트 폴더명 **전체**.
 ///
-/// Claude Code 는 프로젝트 경로를 `e--startcoding-124-Claude-Usage-Widget` 처럼
-/// 납작하게 만들어 폴더명으로 쓴다. 마지막 의미 있는 조각만 보여준다.
+/// Claude Code 는 경로의 영숫자 외 문자를 전부 `-` 로 바꿔 폴더명을 만든다
+/// (`e:\startcoding\125.슬라이드_영상_자동화` → `e--startcoding-125------------`).
+/// 한글이 이 시점에 파괴되므로 폴더명에서는 복원할 수 없다 — 원본 경로는
+/// 트랜스크립트 `cwd` 필드에만 남아 있고 그쪽이 우선이다 ([`parse_session`]).
+/// 여기서 조각을 잘라 봐야 정보만 잃으므로(`aj-mos` → `mos`) 통째로 쓴다.
 fn project_label(transcript: &Path) -> Option<String> {
-    let dir = transcript.parent()?.file_name()?.to_str()?;
+    let dir = transcript.parent()?.file_name()?.to_str()?.trim();
+    (!dir.is_empty()).then(|| dir.to_string())
+}
 
-    // 드라이브 접두사(`e--`)와 경로 구분(`-`)을 걷어내고 마지막 조각을 쓴다
-    let last = dir.rsplit("--").next().unwrap_or(dir);
-    let last = last.rsplit('-').next().unwrap_or(last);
-
-    let cleaned = if last.trim().is_empty() { dir } else { last };
-    Some(cleaned.to_string())
+/// cwd 경로의 마지막 조각 = 실제 프로젝트 폴더명. 한글도 그대로 산다.
+fn folder_name(cwd: &str) -> Option<String> {
+    let name = cwd
+        .trim_end_matches(['\\', '/'])
+        .rsplit(['\\', '/'])
+        .next()?
+        .trim();
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 /// 트랜스크립트를 찾을 때 내려갈 최대 깊이.
@@ -273,6 +286,13 @@ pub fn parse_session(tail: &str) -> Session {
             session.effort = parsed.effort;
         }
 
+        // cwd 는 거의 모든 줄에 있다. 뒤에서부터 훑으므로 처음 만난 게 최신이다.
+        if session.source_project.is_none() {
+            if let Some(cwd) = parsed.cwd.as_deref() {
+                session.source_project = folder_name(cwd);
+            }
+        }
+
         let is_assistant = parsed.kind.as_deref() == Some("assistant");
         if !is_assistant {
             continue;
@@ -299,7 +319,10 @@ pub fn parse_session(tail: &str) -> Session {
             }
         }
 
-        if session.model.is_some() && session.effort.is_some() && assistant_seen >= THINKING_LOOKBACK
+        if session.model.is_some()
+            && session.effort.is_some()
+            && session.source_project.is_some()
+            && assistant_seen >= THINKING_LOOKBACK
         {
             break;
         }
@@ -414,16 +437,36 @@ mod tests {
         assert_eq!(parse_session(tail).model_label.as_deref(), Some("Sonnet 5"));
     }
 
+    /// 폴백 라벨은 조각을 자르지 않고 폴더명 전체를 쓴다 (`mos` 사고 방지).
     #[test]
-    fn project_label_uses_last_path_segment() {
-        let p = PathBuf::from(r"C:\x\.claude\projects\e--startcoding-124-Claude-Usage-Widget\s.jsonl");
-        assert_eq!(project_label(&p).as_deref(), Some("Widget"));
+    fn fallback_label_is_full_folder_name() {
+        let p = PathBuf::from(r"C:\x\.claude\projects\e--startcoding-118-aj-mos\s.jsonl");
+        assert_eq!(project_label(&p).as_deref(), Some("e--startcoding-118-aj-mos"));
     }
 
+    /// cwd 의 마지막 조각이 라벨이 된다. 한글이 깨지지 않아야 한다.
     #[test]
-    fn project_label_falls_back_to_folder_name() {
-        let p = PathBuf::from(r"C:\x\.claude\projects\myproject\s.jsonl");
-        assert_eq!(project_label(&p).as_deref(), Some("myproject"));
+    fn folder_name_keeps_korean() {
+        assert_eq!(
+            folder_name(r"e:\startcoding\125.슬라이드_영상_자동화").as_deref(),
+            Some("125.슬라이드_영상_자동화")
+        );
+        assert_eq!(folder_name("/home/u/projects/my-app").as_deref(), Some("my-app"));
+        assert_eq!(folder_name(r"e:\one\two\").as_deref(), Some("two"), "끝 구분자는 무시");
+        assert_eq!(folder_name(""), None);
+    }
+
+    /// 트랜스크립트에 cwd 가 있으면 그쪽이 라벨이 된다.
+    #[test]
+    fn parse_session_takes_source_from_cwd() {
+        let tail = concat!(
+            r#"{"type":"user","cwd":"e:\\startcoding\\125.슬라이드_영상_자동화","message":{"role":"user"}}"#,
+            "\n",
+            r#"{"type":"assistant","cwd":"e:\\startcoding\\125.슬라이드_영상_자동화","message":{"model":"claude-opus-5","content":[]}}"#,
+        );
+        let s = parse_session(tail);
+        assert_eq!(s.source_project.as_deref(), Some("125.슬라이드_영상_자동화"));
+        assert_eq!(s.model_label.as_deref(), Some("Opus 5"));
     }
 
     #[test]
