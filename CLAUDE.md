@@ -34,7 +34,8 @@ Claude Code의 OAuth 인증을 재사용하여 구독 사용량(5시간 세션/�
 
 확정 (2026-07-27 `/bootstrap`). 근거·대안 비교는 [docs/architecture.md](docs/architecture.md).
 
-- **앱**: Tauri 2.11 (Rust 1.95 / edition 2021)
+- **앱**: Tauri 2.11 (Rust / edition 2021)
+  - ⚠️ **Rust 1.94 이상 필수**. `libsqlite3-sys` 빌드 스크립트가 1.94에서 안정화된 `cfg_select` 를 쓴다 — 1.93 이하는 `error[E0658]` 로 빌드가 죽는다. 새 PC라면 빌드 전 `rustup update stable`
 - **UI**: Svelte 5.56 (runes) + TypeScript 5.9 + Vite 8 — SvelteKit 미사용, 멀티 엔트리(위젯/설정)
   - ⚠️ TS 는 7 이 아니라 **5.9 에 고정**. svelte-check 4.7 이 TS 7 네이티브 컴파일러에서 `typescript.sys` 를 못 찾고 죽는다 (빌드는 esbuild 라 무관하지만 타입 검사가 막힌다)
 - **HTTP**: reqwest 0.13 (rustls + rustls-native-certs)

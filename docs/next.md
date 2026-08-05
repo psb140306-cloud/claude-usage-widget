@@ -1,17 +1,50 @@
 # 다음 세션 가이드
 
-> 작성: 2026-07-30
-> 마지막 커밋: d0ffef8 docs(report): 리포트 측정 기준을 ⓘ 툴팁으로 안내 (v0.2.4)
+> 작성: 2026-07-31 14:10 (3차 — 새 PC 빌드·설치)
+> 마지막 커밋: ad47b7d feat(widget): 가장자리 리사이즈 + 너비 비례 확대 줌 (v0.3.1)
+
+## ⚠️ 빌드 전제: Rust 1.94 이상
+
+`libsqlite3-sys` 빌드 스크립트가 **`cfg_select`** (Rust 1.94 안정화)를 쓴다.
+1.93 이하에서는 `error[E0658]: use of unstable library feature 'cfg_select'` 로 빌드가 죽는다.
+새 PC라면 빌드 **전에** 먼저:
+```powershell
+rustc --version      # 1.94 미만이면 아래 실행
+rustup update stable
+```
 
 ## 즉시 검증 (다음 세션 첫 1분)
 ```powershell
-cd src-tauri; cargo test --lib     # 64/64 통과해야 함
+cd src-tauri; cargo test --lib     # 65/65 통과해야 함
 npm run check                       # 0 errors
-npm run tauri:dev                   # 우측 하단 위젯
+npm run tauri:dev                   # 우측 하단 위젯 — 가장자리 드래그로 확대되는지
 npm run tauri:build                 # 인스톨러 재생성
 ```
 설치본이 이미 돌고 있으면 `%LOCALAPPDATA%\Claude Usage Widget\claude-usage-widget.exe` 를 실행하면 된다.
-현재 설치본: **v0.2.4** (2026-07-30, 설정 창에 사용량 리포트 포함).
+현재 설치본: **v0.3.1** (2026-07-30, 리포트 + 가장자리 리사이즈·줌 확대 + "기본 크기로" 버튼).
+
+## 2026-07-31 완료 — 새 PC 빌드·설치 (코드 변경 없음)
+
+이 프로젝트는 **여러 PC에서 작업**한다. 빌드 산출물은 git에 없으므로(`target/`, `*.exe` 가 .gitignore)
+새 PC에서는 클론 직후 인스톨러도 설치본도 없는 것이 정상이다. 문서에 "설치본 v0.3.1" 이라고
+적혀 있어도 그건 **다른 PC 기준**이다.
+
+새 PC 세팅 절차 (이번에 실제로 밟은 순서):
+```powershell
+npm install                                    # node_modules 없음이 정상
+rustup update stable                           # ← 1.93 이면 필수 (위 전제 참조)
+npm run tauri:build                            # release 약 7분
+& "src-tauri\target\release\bundle\nsis\Claude Usage Widget_0.3.1_x64-setup.exe" /S
+```
+
+검증 결과: 설치 exit 0 → `%LOCALAPPDATA%\Claude Usage Widget\` (exe + uninstall.exe),
+HKCU Uninstall 에 "Claude Usage Widget 0.3.1", 시작 메뉴 바로가기 생성, 앱 기동 정상.
+`~/.claude/.credentials.json` 이 있으면 별도 로그인 없이 바로 조회된다.
+
+**무설치(포터블) 실행 파일** — `src-tauri/target/release/claude-usage-widget.exe` (6.67MB).
+인스톨러가 이 파일을 그대로 복사해 넣으므로 설치본과 동일한 바이너리다. 아무 폴더에 두고 실행하면 된다.
+단 ① Win10 등으로 옮기면 WebView2 런타임이 필요하고(Win11 은 기본 탑재),
+② 설정·히스토리는 `%APPDATA%` 에 저장되므로 exe 만 옮겨도 데이터는 따라가지 않는다.
 
 ## 2026-07-30 완료
 
@@ -21,6 +54,12 @@ npm run tauri:build                 # 인스톨러 재생성
 | 출처 라벨을 cwd 기반 전체 폴더명으로 — 한글 지원, 24자 초과 … | 5feeada |
 | 스테일 뱃지 푸터 둘째 줄 분리(높이 390) + 다시 시도 피드백·429 안내 | 2a9a251 |
 | 리포트 측정 기준 ⓘ 툴팁 | d0ffef8 |
+| **가장자리 리사이즈**(확장 모드, 240×300~560×900) + "기본 크기로" 버튼 | ad47b7d |
+
+리사이즈 설계: 너비 = **확대 배율** (기준 260px, 웹뷰 줌 0.8~2.5배 — 글자·게이지 전부 커짐).
+리플로우가 아니라 확대를 택한 이유는 리사이즈 실수요가 가독성이기 때문 (7/29 글자 지적 맥락).
+높이 여유분은 차트가 채운다 (.chart flex:1 + ResizeObserver). 컴팩트는 고정 스트립 —
+전환 시 min 제약(300)을 **먼저 풀어야** 122 높이가 적용된다 (apply_size_constraints 순서).
 
 핵심 구조 변화: **`daily_stats` 일별 롤업 테이블** 추가. 원본 스냅샷은 90일 보존이지만
 하루 요약(일 최고치)은 지우지 않아 1년 리포트가 성립한다. prune 이 하루 중간을 잘라도
@@ -57,7 +96,9 @@ npm run tauri:build                 # 인스톨러 재생성
 | M5 히스토리 & 차트 | ✅ SQLite 90일 보관, uPlot 24시간 추이, 요일별 패턴 |
 | M6 패키징 | ✅ 인스톨러·설치·제거 검증. ⚠️ **메모리 KPI만 미달성** |
 
-산출물: `src-tauri/target/release/bundle/nsis/Claude Usage Widget_0.2.4_x64-setup.exe` (약 2.7MB)
+산출물 (2026-07-31 기준 v0.3.1):
+- 인스톨러 `src-tauri/target/release/bundle/nsis/Claude Usage Widget_0.3.1_x64-setup.exe` (2.71MB)
+- 무설치 `src-tauri/target/release/claude-usage-widget.exe` (6.67MB)
 
 ## 배포 상태
 
@@ -66,7 +107,7 @@ npm run tauri:build                 # 인스톨러 재생성
 새 버전을 쓰려면 직접 빌드해 설치한다 (버전은 tauri.conf.json 과 일치시킬 것):
 ```powershell
 npm run tauri:build
-& "src-tauri\target\release\bundle\nsis\Claude Usage Widget_0.2.4_x64-setup.exe" /S
+& "src-tauri\target\release\bundle\nsis\Claude Usage Widget_0.3.1_x64-setup.exe" /S
 ```
 
 ## 사용자 판단이 필요한 것
@@ -89,6 +130,7 @@ npm run tauri:build
 - 24시간 상주 테스트 (크래시·메모리 누수)
 - 재부팅 후 자동 시작 — 설정에서 자동 실행을 켜고 재부팅해야 확인됨
 - 스테일 뱃지 **둘째 줄** 표시 실물 확인 — 다음 조회 실패(429/네트워크 단절) 때 푸터를 볼 것
+- 리사이즈 실사용 피드백 — 배율 상한(2.5)·크기 범위(240×300~560×900)가 적정한지, DPI 바뀔 때 줌 어색함 없는지
 - 1년 리포트는 daily_stats 가 쌓여야 의미 — 기록 시작 2026-07-28
 - (보류) GitHub Releases 자동 업데이트
 
