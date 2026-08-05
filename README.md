@@ -1,5 +1,7 @@
 # Claude Usage Widget
 
+*[English](README.en.md)*
+
 Claude Code 구독 사용량(5시간 세션 / 주간 한도)을 데스크톱에 상시 표시하는 Windows 11 트레이 + 플로팅 위젯.
 
 `/usage` 를 치러 Claude Code로 돌아갈 필요 없이, 화면 구석에서 남은 한도와 리셋까지 남은 시간을 확인합니다.
