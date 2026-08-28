@@ -126,6 +126,13 @@ Stack and design decisions are in [docs/architecture.md](docs/architecture.md); 
 
 MIT
 
+## Who made this
+
+I built this because I needed it, and published it because it seemed useful to others.
+Bug reports and PRs are welcome — I just don't commit to a response time.
+
+More of what I build: **[huns-dev.kr](https://www.huns-dev.kr)**
+
 ---
 
 한국어 문서는 [README.md](README.md) 를 보세요.
