@@ -33,7 +33,9 @@ Opus 5 · max · thinking
 
 ## 설치
 
-`Claude Usage Widget_{버전}_x64-setup.exe` 를 실행합니다 (버전은 `tauri.conf.json` 과 동일). 현재 사용자 계정에만 설치되므로 관리자 권한이 필요 없습니다.
+[Releases 페이지](../../releases/latest)에서 `Claude Usage Widget_{버전}_x64-setup.exe` 를 내려받아 실행합니다 (버전은 `tauri.conf.json` 과 동일). 현재 사용자 계정에만 설치되므로 관리자 권한이 필요 없습니다.
+
+코드 서명이 없어 SmartScreen 경고("Windows의 PC 보호")가 뜹니다. 신뢰하기로 했다면 **추가 정보 → 실행**을 누르세요. 남의 바이너리가 꺼려지면 소스가 전부 여기 있으니 직접 빌드해도 됩니다 (`npm install && npm run tauri:build`, Rust 1.94+ 필요).
 
 **전제 조건**
 - Windows 11 (Windows 10 22H2는 베스트 에포트)
